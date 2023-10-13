@@ -19,14 +19,12 @@ from bs4 import BeautifulSoup
 from .const import (
     ADT_DEFAULT_HTTP_HEADERS,
     ADT_DEFAULT_VERSION,
-    ADT_DEVICE_URI,
     ADT_HTTP_REFERER_URIS,
     ADT_LOGIN_URI,
     ADT_ORB_URI,
-    ADT_SYSTEM_URI,
     API_PREFIX,
 )
-from .util import DebugRLock, close_response, make_soup
+from .util import DebugRLock, make_soup
 
 RECOVERABLE_ERRORS = [429, 500, 502, 503, 504]
 LOG = logging.getLogger(__name__)
@@ -121,86 +119,78 @@ class ADTPulseConnection:
         method: str = "GET",
         extra_params: Optional[Dict[str, str]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
-        timeout=1,
+        timeout: int = 1,
     ) -> Optional[ClientResponse]:
-        """Query ADT Pulse async.
+        """
+        Query ADT Pulse async.
 
         Args:
             uri (str): URI to query
             method (str, optional): method to use. Defaults to "GET".
-            extra_params (Optional[Dict], optional): query parameters. Defaults to None.
+            extra_params (Optional[Dict], optional): query parameters.
+                                                    Defaults to None.
             extra_headers (Optional[Dict], optional): extra HTTP headers.
-                        Defaults to None.
+                                                    Defaults to None.
             timeout (int, optional): timeout in seconds. Defaults to 1.
 
         Returns:
             Optional[ClientResponse]: aiohttp.ClientResponse object
-                                      None on failure
-                                      ClientResponse will already be closed.
+                                    None on failure
+                                    ClientResponse will already be closed.
         """
-        response = None
         with ADTPulseConnection._class_threadlock:
             if ADTPulseConnection._api_version == ADT_DEFAULT_VERSION:
                 await self.async_fetch_version()
         url = self.make_url(uri)
-        if uri in ADT_HTTP_REFERER_URIS:
-            new_headers = {"Accept": ADT_DEFAULT_HTTP_HEADERS["Accept"]}
-        else:
-            new_headers = {"Accept": "*/*"}
 
-        LOG.debug("Updating HTTP headers: %s", new_headers)
-        self._session.headers.update(new_headers)
+        headers = {"Accept": ADT_DEFAULT_HTTP_HEADERS["Accept"]}
+        if uri not in ADT_HTTP_REFERER_URIS:
+            headers["Accept"] = "*/*"
+
+        self._session.headers.update(headers)
 
         LOG.debug(
             "Attempting %s %s params=%s timeout=%d", method, uri, extra_params, timeout
         )
 
-        # FIXME: reauthenticate if received:
-        # "You have not yet signed in or you
-        #  have been signed out due to inactivity."
-
-        # define connection method
         retry = 0
         max_retries = 3
+        response: Optional[ClientResponse] = None
         while retry < max_retries:
             try:
-                if method == "GET":
-                    async with self._session.get(
-                        url, headers=extra_headers, params=extra_params, timeout=timeout
-                    ) as response:
-                        await response.text()
-                elif method == "POST":
-                    async with self._session.post(
-                        url, headers=extra_headers, data=extra_params, timeout=timeout
-                    ) as response:
-                        await response.text()
-                else:
-                    LOG.error("Invalid request method %s", method)
-                    return None
+                async with self._session.request(
+                    method,
+                    url,
+                    headers=extra_headers,
+                    params=extra_params,
+                    data=extra_params if method == "POST" else None,
+                    timeout=timeout,
+                ) as response:
+                    await response.text()
 
-                if response.status in RECOVERABLE_ERRORS:
-                    retry = retry + 1
-                    LOG.info(
-                        "query returned recoverable error code %s, "
-                        "retrying (count = %d)",
-                        response.status,
-                        retry,
-                    )
-                    if retry == max_retries:
-                        LOG.warning(
-                            "Exceeded max retries of %d, giving up", max_retries
+                    if response.status in RECOVERABLE_ERRORS:
+                        retry += 1
+                        LOG.info(
+                            "query returned recoverable error code %s, "
+                            "retrying (count = %d)",
+                            response.status,
+                            retry,
                         )
-                        response.raise_for_status()
-                    await asyncio.sleep(2**retry + uniform(0.0, 1.0))
-                    continue
+                        if retry == max_retries:
+                            LOG.warning(
+                                "Exceeded max retries of %d, giving up", max_retries
+                            )
+                            response.raise_for_status()
+                        await asyncio.sleep(2**retry + uniform(0.0, 1.0))
+                        continue
 
-                response.raise_for_status()
-                # success, break loop
-                retry = 4
+                    response.raise_for_status()
+                    retry = 4  # success, break loop
             except (
                 asyncio.TimeoutError,
                 ClientConnectionError,
                 ClientConnectorError,
+                ClientResponseError,
             ) as ex:
                 LOG.debug(
                     "Error %s occurred making %s request to %s, retrying",
@@ -209,25 +199,6 @@ class ADTPulseConnection:
                     url,
                     exc_info=True,
                 )
-                await asyncio.sleep(2**retry + uniform(0.0, 1.0))
-                continue
-            except ClientResponseError as err:
-                code = err.code
-                LOG.exception(
-                    "Received HTTP error code %i in request to ADT Pulse", code
-                )
-                return None
-
-        # success!
-        # FIXME? login uses redirects so final url is wrong
-        if uri in ADT_HTTP_REFERER_URIS:
-            if uri == ADT_DEVICE_URI:
-                referer = self.make_url(ADT_SYSTEM_URI)
-            else:
-                if response is not None and response.url is not None:
-                    referer = str(response.url)
-                    LOG.debug("Setting Referer to: %s", referer)
-                    self._session.headers.update({"Referer": referer})
 
         return response
 
@@ -288,41 +259,32 @@ class ADTPulseConnection:
 
     async def async_fetch_version(self) -> None:
         """Fetch ADT Pulse version."""
+        response: Optional[ClientResponse] = None
         with ADTPulseConnection._class_threadlock:
             if ADTPulseConnection._api_version != ADT_DEFAULT_VERSION:
                 return
-            response = None
-            signin_url = f"{self.service_host}/myhome{ADT_LOGIN_URI}"
-            if self._session:
-                try:
-                    async with self._session.get(signin_url) as response:
-                        # we only need the headers here, don't parse response
-                        response.raise_for_status()
-                except (ClientResponseError, ClientConnectionError):
-                    LOG.warning(
-                        "Error occurred during API version fetch, defaulting to %s",
-                        ADT_DEFAULT_VERSION,
-                    )
-                    close_response(response)
-                    return
 
-            if response is None:
+            signin_url = f"{self.service_host}/myhome{ADT_LOGIN_URI}"
+            try:
+                async with self._session.get(signin_url) as response:
+                    # we only need the headers here, don't parse response
+                    response.raise_for_status()
+            except (ClientResponseError, ClientConnectionError):
                 LOG.warning(
                     "Error occurred during API version fetch, defaulting to %s",
                     ADT_DEFAULT_VERSION,
                 )
                 return
-
-            m = re.search("/myhome/(.+)/[a-z]*/", response.real_url.path)
-            close_response(response)
-            if m is not None:
-                ADTPulseConnection._api_version = m.group(1)
-                LOG.debug(
-                    "Discovered ADT Pulse version %s at %s",
-                    ADTPulseConnection._api_version,
-                    self.service_host,
-                )
-                return
+            if response is not None:
+                m = re.search("/myhome/(.+)/[a-z]*/", response.real_url.path)
+                if m is not None:
+                    ADTPulseConnection._api_version = m.group(1)
+                    LOG.debug(
+                        "Discovered ADT Pulse version %s at %s",
+                        ADTPulseConnection._api_version,
+                        self.service_host,
+                    )
+                    return
 
             LOG.warning(
                 "Couldn't auto-detect ADT Pulse version, defaulting to %s",
