@@ -162,8 +162,8 @@ class PyADTPulse:
         self._last_login_time: int = 0
 
         self._site: Optional[ADTPulseSite] = None
-        self.keepalive_interval = self.keepalive_interval
-        self.relogin_interval = self.relogin_interval
+        self.keepalive_interval = keepalive_interval
+        self.relogin_interval = relogin_interval
 
         # authenticate the user
         if do_login and websession is None:
