@@ -66,6 +66,7 @@ class PyADTPulse:
         "_login_exception",
         "_relogin_interval",
         "_keepalive_interval",
+        "_update_succeded",
     )
 
     @staticmethod
@@ -164,6 +165,7 @@ class PyADTPulse:
         self._site: Optional[ADTPulseSite] = None
         self.keepalive_interval = keepalive_interval
         self.relogin_interval = relogin_interval
+        self._update_succeded = True
 
         # authenticate the user
         if do_login and websession is None:
@@ -662,6 +664,16 @@ class PyADTPulse:
         if sync_thread is not None:
             sync_thread.join()
 
+    def _set_update_failed(self, resp: ClientResponse | None) -> None:
+        """Sets update failed, sets updates_exist to notify wait_for_update
+        and closes response if necessary."""
+        with self._attribute_lock:
+            self._update_succeded = False
+            if resp is not None:
+                close_response(resp)
+            if self._updates_exist is not None:
+                self._updates_exist.set()
+
     async def _sync_check_task(self) -> None:
         # this should never be true
         if self._sync_task is not None:
@@ -693,16 +705,17 @@ class PyADTPulse:
                 )
 
                 if response is None:
+                    self._set_update_failed(response)
                     continue
                 retry_after = self._check_retry_after(response, f"{task_name}")
                 if retry_after != 0:
-                    close_response(response)
+                    self._set_update_failed(response)
                     continue
                 text = await response.text()
                 if not handle_response(
                     response, logging.ERROR, "Error querying ADT sync"
                 ):
-                    close_response(response)
+                    self._set_update_failed(response)
                     continue
                 close_response(response)
                 pattern = r"\d+[-]\d+[-]\d+"
@@ -713,7 +726,8 @@ class PyADTPulse:
                     LOG.debug("Received %s from ADT Pulse site", text)
                     await self._do_logout_query()
                     if not await self.async_quick_relogin():
-                        LOG.error("%s couldn't re-login, exiting.", task_name)
+                        LOG.error("%s couldn't re-login", task_name)
+                    self._set_update_failed(None)
                     continue
                 if text != last_sync_text:
                     LOG.debug("Updates exist: %s, requerying", text)
@@ -736,6 +750,19 @@ class PyADTPulse:
                 close_response(response)
                 return
 
+    def _check_update_succeeded(self) -> bool:
+        """Check if update succeeded, clears the update event and
+        resets _update_succeeded.
+        """
+        with self._attribute_lock:
+            old_update_succeded = self._update_succeded
+            self._update_succeded = True
+            if self._updates_exist is None:
+                return False
+            if self._updates_exist.is_set():
+                self._updates_exist.clear()
+            return old_update_succeded
+
     @property
     def updates_exist(self) -> bool:
         """Check if updated data exists.
@@ -755,19 +782,14 @@ class PyADTPulse:
                 self._sync_task = loop.create_task(
                     coro, name=f"{SYNC_CHECK_TASK_NAME}: Sync session"
                 )
-            if self._updates_exist is None:
-                return False
+            return self._check_update_succeeded()
 
-            if self._updates_exist.is_set():
-                self._updates_exist.clear()
-                return True
-            return False
-
-    async def wait_for_update(self) -> None:
+    async def wait_for_update(self) -> bool:
         """Wait for update.
 
         Blocks current async task until Pulse system
         signals an update
+        FIXME?: This code probably won't work with multiple waiters.
         """
         with self._attribute_lock:
             if self._sync_task is None:
@@ -779,7 +801,7 @@ class PyADTPulse:
             raise RuntimeError("Update event does not exist")
 
         await self._updates_exist.wait()
-        self._updates_exist.clear()
+        return self._check_update_succeeded()
 
     @property
     def is_connected(self) -> bool:

@@ -452,13 +452,19 @@ async def async_test_alarm(adt: PyADTPulse) -> None:
             print(
                 f"FAIL: Arming home pending check failed {adt.site.alarm_control_panel} "
             )
-        await adt.wait_for_update()
-        if adt.site.alarm_control_panel.is_home:
-            print("Arm stay no longer pending")
+        if await adt.wait_for_update():
+            if adt.site.alarm_control_panel.is_home:
+                print("Arm stay no longer pending")
+            else:
+                while not adt.site.alarm_control_panel.is_home:
+                    pprint(
+                        f"FAIL: Arm stay value incorrect {adt.site.alarm_control_panel}"
+                    )
+                    if not await adt.wait_for_update():
+                        print("ERROR: Alarm update failed")
+                        break
         else:
-            while not adt.site.alarm_control_panel.is_home:
-                pprint(f"FAIL: Arm stay value incorrect {adt.site.alarm_control_panel}")
-                await adt.wait_for_update()
+            print("ERROR: Alarm update failed")
 
         print("Testing invalid alarm state change from armed home to armed away")
         if await adt.site.async_arm_away():
@@ -488,16 +494,18 @@ async def async_test_alarm(adt: PyADTPulse) -> None:
             print("Disarm pending success")
         else:
             pprint(f"FAIL: Disarm pending fail {adt.site.alarm_control_panel}")
-        await adt.wait_for_update()
-        if adt.site.alarm_control_panel.is_disarmed:
-            print("Success update to disarm")
-        else:
-            while not adt.site.alarm_control_panel.is_disarmed:
-                pprint(
-                    "FAIL: did not set to disarm after update "
-                    f"{adt.site.alarm_control_panel}"
-                )
-                await adt.wait_for_update()
+        if await adt.wait_for_update():
+            if adt.site.alarm_control_panel.is_disarmed:
+                print("Success update to disarm")
+            else:
+                while not adt.site.alarm_control_panel.is_disarmed:
+                    pprint(
+                        "FAIL: did not set to disarm after update "
+                        f"{adt.site.alarm_control_panel}"
+                    )
+                    if not await adt.wait_for_update():
+                        print("ERROR: Alarm update failed")
+                        break
             print("Test finally succeeded")
         print("Testing disarming twice")
         if await adt.site.async_disarm():
@@ -511,17 +519,21 @@ async def async_test_alarm(adt: PyADTPulse) -> None:
                 "FAIL: Double disarm state is not disarming "
                 f"{adt.site.alarm_control_panel}"
             )
-        await adt.wait_for_update()
-        if adt.site.alarm_control_panel.is_disarmed:
-            print("Double disarm success")
-        else:
-            while not adt.site.alarm_control_panel.is_disarmed:
-                pprint(
-                    "FAIL: Double disarm state is not disarmed "
-                    f"{adt.site.alarm_control_panel}"
-                )
-                await adt.wait_for_update()
+        if await adt.wait_for_update():
+            if adt.site.alarm_control_panel.is_disarmed:
+                print("Double disarm success")
+            else:
+                while not adt.site.alarm_control_panel.is_disarmed:
+                    pprint(
+                        "FAIL: Double disarm state is not disarmed "
+                        f"{adt.site.alarm_control_panel}"
+                    )
+                    if not await adt.wait_for_update():
+                        print("ERROR: Alarm update failed")
+                        break
             print("Test finally succeeded")
+        else:
+            print("ERROR: Alarm update failed")
     else:
         print("Disarming failed")
     print("Arming alarm away")
@@ -531,17 +543,21 @@ async def async_test_alarm(adt: PyADTPulse) -> None:
             print("Arm away arm pending")
         else:
             pprint(f"FAIL: arm away call not pending {adt.site.alarm_control_panel}")
-        await adt.wait_for_update()
-        if adt.site.alarm_control_panel.is_away:
-            print("Arm away call after update succeed")
-        else:
-            while not adt.site.alarm_control_panel.is_away:
-                pprint(
-                    "FAIL: arm away call after update failed "
-                    "f{adt.site.alarm_control_panel}"
-                )
-                await adt.wait_for_update()
+        if await adt.wait_for_update():
+            if adt.site.alarm_control_panel.is_away:
+                print("Arm away call after update succeed")
+            else:
+                while not adt.site.alarm_control_panel.is_away:
+                    pprint(
+                        "FAIL: arm away call after update failed "
+                        "f{adt.site.alarm_control_panel}"
+                    )
+                    if not await adt.wait_for_update():
+                        print("ERROR: Alarm update failed")
+                        break
             print("Test finally succeeded")
+        else:
+            print("ERROR: Alarm update failed")
     else:
         print("Arm away failed")
     await adt.site.async_disarm()
@@ -615,9 +631,11 @@ async def async_example(
                 break
             print("\nZones:")
             pprint(adt.site.zones, compact=True)
-            await adt.wait_for_update()
-            print("Updates exist, refreshing")
-            # no need to call an update method
+            if await adt.wait_for_update():
+                print("Updates exist, refreshing")
+                # no need to call an update method
+            else:
+                print("Warning, update failed, retrying")
         except KeyboardInterrupt:
             print("exiting...")
             done = True
