@@ -27,6 +27,7 @@ ADT_GATEWAY_STRING = "gateway"
 # than that
 ADT_DEFAULT_POLL_INTERVAL = 2.0
 ADT_GATEWAY_OFFLINE_POLL_INTERVAL = 90.0
+ADT_MAX_RELOGIN_BACKOFF: float = 15.0 * 60.0
 ADT_DEFAULT_HTTP_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

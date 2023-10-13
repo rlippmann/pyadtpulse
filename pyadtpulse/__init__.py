@@ -24,6 +24,7 @@ from .const import (
     ADT_LOGIN_URI,
     ADT_LOGOUT_URI,
     ADT_MAX_KEEPALIVE_INTERVAL,
+    ADT_MAX_RELOGIN_BACKOFF,
     ADT_MIN_RELOGIN_INTERVAL,
     ADT_SUMMARY_URI,
     ADT_SYNC_CHECK_URI,
@@ -684,6 +685,9 @@ class PyADTPulse:
         LOG.debug("creating %s", task_name)
         response = None
         retry_after = 0
+        inital_relogin_interval = (
+            current_relogin_interval
+        ) = self.site.gateway.poll_interval
         last_sync_text = "0-0-0"
         if self._updates_exist is None:
             raise RuntimeError(f"{task_name} started without update event initialized")
@@ -721,14 +725,23 @@ class PyADTPulse:
                 pattern = r"\d+[-]\d+[-]\d+"
                 if not re.match(pattern, text):
                     LOG.warning(
-                        "Unexpected sync check format (%s), forcing re-auth", pattern
+                        "Unexpected sync check format (%s), "
+                        "forcing re-auth after %f seconds",
+                        pattern,
+                        current_relogin_interval,
                     )
                     LOG.debug("Received %s from ADT Pulse site", text)
                     await self._do_logout_query()
+                    await asyncio.sleep(current_relogin_interval)
+                    current_relogin_interval = min(
+                        ADT_MAX_RELOGIN_BACKOFF, current_relogin_interval * 2
+                    )
                     if not await self.async_quick_relogin():
                         LOG.error("%s couldn't re-login", task_name)
                     self._set_update_failed(None)
                     continue
+                else:
+                    current_relogin_interval = inital_relogin_interval
                 if text != last_sync_text:
                     LOG.debug("Updates exist: %s, requerying", text)
                     last_sync_text = text
