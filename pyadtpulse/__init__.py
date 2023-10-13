@@ -250,7 +250,7 @@ class PyADTPulse:
             return self._relogin_interval
 
     @relogin_interval.setter
-    def relogin_interval(self, interval: Optional[int]) -> None:
+    def relogin_interval(self, interval: int | None) -> None:
         """Set re-login interval.
 
         Args:
@@ -280,7 +280,7 @@ class PyADTPulse:
             return self._keepalive_interval
 
     @keepalive_interval.setter
-    def keepalive_interval(self, interval: Optional[int]) -> None:
+    def keepalive_interval(self, interval: int | None) -> None:
         """Set the keepalive interval in minutes.
 
         If set to None, resets to ADT_DEFAULT_KEEPALIVE_INTERVAL
