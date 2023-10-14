@@ -5,10 +5,9 @@ import asyncio
 import datetime
 import re
 import time
-from contextlib import suppress
 from random import randint
 from threading import RLock, Thread
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 from warnings import warn
 
 import uvloop
@@ -385,55 +384,112 @@ class PyADTPulse:
         return self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
 
     async def _keepalive_task(self) -> None:
-        retry_after = 0
+        retry_after: int = 0
         response: ClientResponse | None = None
-        task_name = self._get_timeout_task_name()
+        task_name: str = self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
         LOG.debug("creating %s", task_name)
+
         with self._attribute_lock:
-            if self._authenticated is None:
-                raise RuntimeError(
-                    "Keepalive task is running without an authenticated event"
-                )
+            self._validate_authenticated_event()
         while self._authenticated.is_set():
-            relogin_interval = self.relogin_interval * 60
-            if relogin_interval != 0 and time.time() - self._last_login_time > randint(
-                int(0.75 * relogin_interval), relogin_interval
-            ):
-                LOG.info("Login timeout reached, re-logging in")
-                # FIXME?: should we just pause the task?
-                with self._attribute_lock:
-                    if self._sync_task is not None:
-                        self._sync_task.cancel()
-                        with suppress(Exception):
-                            await self._sync_task
-                    await self._do_logout_query()
-                    if not await self.async_quick_relogin():
-                        LOG.error("%s could not re-login, exiting", task_name)
-                        return
-                    if self._sync_task is not None:
-                        coro = self._sync_check_task()
-                        self._sync_task = asyncio.create_task(
-                            coro, name=f"{SYNC_CHECK_TASK_NAME}: Async session"
-                        )
+            relogin_interval = self.relogin_interval
+            if self._should_relogin(relogin_interval):
+                if not await self._handle_relogin(task_name):
+                    return
             try:
-                await asyncio.sleep(self.keepalive_interval * 60.0 + retry_after)
+                await asyncio.sleep(self._calculate_sleep_time(retry_after))
                 LOG.debug("Resetting timeout")
-                response = await self._pulse_connection.async_query(
-                    ADT_TIMEOUT_URI, "POST"
-                )
-                if not handle_response(
-                    response, logging.INFO, "Failed resetting ADT Pulse cloud timeout"
-                ):
-                    retry_after = self._check_retry_after(response, "Keepalive task")
-                    close_response(response)
+                response = await self._reset_pulse_cloud_timeout()
+                if (
+                    not handle_response(
+                        response,
+                        logging.WARNING,
+                        "Could not reset ADT Pulse cloud timeout",
+                    )
+                    or response is None
+                ):  # shut up linter
                     continue
-                close_response(response)
-                if self.site.gateway.next_update < time.time():
-                    await self.site._set_device(ADT_GATEWAY_STRING)
+                success, retry_after = self._handle_timeout_response(response)
+                if not success:
+                    continue
+                await self._update_gateway_device_if_needed()
+
             except asyncio.CancelledError:
                 LOG.debug("%s cancelled", task_name)
                 close_response(response)
                 return
+
+    def _validate_authenticated_event(self) -> None:
+        if self._authenticated is None:
+            raise RuntimeError(
+                "Keepalive task is running without an authenticated event"
+            )
+
+    def _should_relogin(self, relogin_interval: int) -> bool:
+        return relogin_interval != 0 and time.time() - self._last_login_time > randint(
+            int(0.75 * relogin_interval), relogin_interval
+        )
+
+    async def _handle_relogin(self, task_name: str) -> bool:
+        """Do a relogin from keepalive task."""
+        LOG.info("Login timeout reached, re-logging in")
+        with self._attribute_lock:
+            try:
+                await self._cancel_task(self._sync_task)
+            except Exception as e:
+                LOG.warning("Unhandled exception %s while cancelling %s", e, task_name)
+            return await self._do_logout_and_relogin(0.0)
+
+    async def _cancel_task(self, task: asyncio.Task | None) -> None:
+        if task is None:
+            return
+        task_name = task.get_name()
+        LOG.debug("cancelling %s", task_name)
+        try:
+            task.cancel()
+        except asyncio.CancelledError:
+            LOG.debug("%s successfully cancelled", task_name)
+            await task
+
+    async def _do_logout_and_relogin(self, relogin_wait_time: float) -> bool:
+        current_task = asyncio.current_task()
+        await self._do_logout_query()
+        await asyncio.sleep(relogin_wait_time)
+        if not await self.async_quick_relogin():
+            task_name: str | None = None
+            if current_task is not None:
+                task_name = current_task.get_name()
+            LOG.error("%s could not re-login, exiting", task_name or "(Unknown task)")
+            return False
+        if current_task is not None and current_task == self._sync_task:
+            return True
+        with self._attribute_lock:
+            if self._sync_task is not None:
+                coro = self._sync_check_task()
+                self._sync_task = asyncio.create_task(
+                    coro, name=f"{SYNC_CHECK_TASK_NAME}: Async session"
+                )
+        return True
+
+    def _calculate_sleep_time(self, retry_after: int) -> int:
+        return self.keepalive_interval * 60 + retry_after
+
+    async def _reset_pulse_cloud_timeout(self) -> ClientResponse | None:
+        return await self._pulse_connection.async_query(ADT_TIMEOUT_URI, "POST")
+
+    def _handle_timeout_response(self, response: ClientResponse) -> Tuple[bool, int]:
+        if not handle_response(
+            response, logging.INFO, "Failed resetting ADT Pulse cloud timeout"
+        ):
+            retry_after = self._check_retry_after(response, "Keepalive task")
+            close_response(response)
+            return False, retry_after
+        close_response(response)
+        return True, 0
+
+    async def _update_gateway_device_if_needed(self) -> None:
+        if self.site.gateway.next_update < time.time():
+            await self.site._set_device(ADT_GATEWAY_STRING)
 
     async def _sync_check_task(self) -> None:
         task_name = self._get_sync_task_name()
@@ -465,7 +521,7 @@ class PyADTPulse:
 
                 text = await response.text()
                 if not self._validate_sync_check_response(
-                    response, text, task_name, current_relogin_interval
+                    response, text, current_relogin_interval
                 ):
                     current_relogin_interval = min(
                         ADT_MAX_RELOGIN_BACKOFF, current_relogin_interval * 2
@@ -507,7 +563,6 @@ class PyADTPulse:
         self,
         response: ClientResponse,
         text: str,
-        task_name: str,
         current_relogin_interval: float,
     ) -> bool:
         if not handle_response(response, logging.ERROR, "Error querying ADT sync"):
@@ -523,10 +578,7 @@ class PyADTPulse:
                 current_relogin_interval,
             )
             LOG.debug("Received %s from ADT Pulse site", text)
-            await self._do_logout_query()
-            await asyncio.sleep(current_relogin_interval)
-            if not await self.async_quick_relogin():
-                LOG.error("%s couldn't re-login", task_name)
+            await self._do_logout_and_relogin(current_relogin_interval)
             self._set_update_failed(None)
             return False
         return True
@@ -761,18 +813,8 @@ class PyADTPulse:
     async def async_logout(self) -> None:
         """Logout of ADT Pulse async."""
         LOG.info("Logging %s out of ADT Pulse", self._username)
-        if self._timeout_task is not None:
-            try:
-                self._timeout_task.cancel()
-            except asyncio.CancelledError:
-                LOG.debug("%s successfully cancelled", KEEPALIVE_TASK_NAME)
-                await self._timeout_task
-        if self._sync_task is not None:
-            try:
-                self._sync_task.cancel()
-            except asyncio.CancelledError:
-                LOG.debug("%s successfully cancelled", SYNC_CHECK_TASK_NAME)
-                await self._sync_task
+        await self._cancel_task(self._timeout_task)
+        await self._cancel_task(self._sync_task)
         self._timeout_task = self._sync_task = None
         await self._do_logout_query()
         if self._authenticated is not None:
