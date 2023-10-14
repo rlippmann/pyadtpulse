@@ -303,10 +303,16 @@ class PyADTPulse:
             self._site._update_zone_from_soup(soup)
 
     async def _initialize_sites(self, soup: BeautifulSoup) -> None:
+        """
+        Initializes the sites in the ADT Pulse account.
+
+        Args:
+            soup (BeautifulSoup): The parsed HTML soup object.
+        """
         # typically, ADT Pulse accounts have only a single site (premise/location)
-        singlePremise = soup.find("span", {"id": "p_singlePremise"})
-        if singlePremise:
-            site_name = singlePremise.text
+        single_premise = soup.find("span", {"id": "p_singlePremise"})
+        if single_premise:
+            site_name = single_premise.text
 
             # FIXME: this code works, but it doesn't pass the linter
             signout_link = str(
@@ -347,6 +353,17 @@ class PyADTPulse:
     def _check_retry_after(
         self, response: Optional[ClientResponse], task_name: str
     ) -> int:
+        """
+        Check the "Retry-After" header in the response and return the number of seconds
+        to wait before retrying the task.
+
+        Parameters:
+            response (Optional[ClientResponse]): The response object.
+            task_name (str): The name of the task.
+
+        Returns:
+            int: The number of seconds to wait before retrying the task.
+        """
         if response is None:
             return 0
         header_value = response.headers.get("Retry-After")
@@ -373,6 +390,16 @@ class PyADTPulse:
         return retval
 
     def _get_task_name(self, task, default_name) -> str:
+        """
+        Get the name of a task.
+
+        Parameters:
+            task (Task): The task object.
+            default_name (str): The default name to use if the task is None.
+
+        Returns:
+            str: The name of the task if it is not None, otherwise the default name with a suffix indicating a possible internal error.
+        """
         if task is not None:
             return task.get_name()
         return f"{default_name} - possible internal error"
@@ -384,6 +411,10 @@ class PyADTPulse:
         return self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
 
     async def _keepalive_task(self) -> None:
+        """
+        Asynchronous function that runs a keepalive task to maintain the connection
+        with the ADT Pulse cloud.
+        """
         retry_after: int = 0
         response: ClientResponse | None = None
         task_name: str = self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
@@ -426,6 +457,16 @@ class PyADTPulse:
             )
 
     def _should_relogin(self, relogin_interval: int) -> bool:
+        """
+        Checks if the user should re-login based on the relogin interval and the time
+        since the last login.
+
+        Parameters:
+            relogin_interval (int): The interval in seconds between re-logins.
+
+        Returns:
+            bool: True if the user should re-login, False otherwise.
+        """
         return relogin_interval != 0 and time.time() - self._last_login_time > randint(
             int(0.75 * relogin_interval), relogin_interval
         )
@@ -441,6 +482,12 @@ class PyADTPulse:
             return await self._do_logout_and_relogin(0.0)
 
     async def _cancel_task(self, task: asyncio.Task | None) -> None:
+        """
+        Cancel a given asyncio task.
+
+        Args:
+            task (asyncio.Task | None): The task to be cancelled.
+        """
         if task is None:
             return
         task_name = task.get_name()
@@ -452,6 +499,15 @@ class PyADTPulse:
             await task
 
     async def _do_logout_and_relogin(self, relogin_wait_time: float) -> bool:
+        """
+        Performs a logout and re-login process.
+
+        Args:
+            relogin_wait_time (float): The amount of time to wait before re-logging in.
+
+        Returns:
+            bool: True if the re-login process is successful, False otherwise.
+        """
         current_task = asyncio.current_task()
         await self._do_logout_query()
         await asyncio.sleep(relogin_wait_time)
@@ -478,6 +534,17 @@ class PyADTPulse:
         return await self._pulse_connection.async_query(ADT_TIMEOUT_URI, "POST")
 
     def _handle_timeout_response(self, response: ClientResponse) -> Tuple[bool, int]:
+        """
+        Handle the timeout response from the client.
+
+        Args:
+            response (ClientResponse): The client response object.
+
+        Returns:
+            Tuple[bool, int]: A tuple containing a boolean value indicating whether the
+            response was handled successfully and an integer indicating the
+            retry after value.
+        """
         if not handle_response(
             response, logging.INFO, "Failed resetting ADT Pulse cloud timeout"
         ):
@@ -492,6 +559,35 @@ class PyADTPulse:
             await self.site._set_device(ADT_GATEWAY_STRING)
 
     async def _sync_check_task(self) -> None:
+        """
+        Asynchronous function that performs a synchronization check task.
+
+        This function is responsible for performing a synchronization check task.
+        It then initializes variables for the response, retry after, initial relogin
+        interval, and last sync text.
+
+        The function validates that updates exist for the sync task and enters into
+        a loop.
+
+        Within the loop, it adjusts the backoff poll interval, sleeps for a
+        maximum of the retry after value or the poll interval, and performs a sync check
+        query.
+
+        The function then checks if the response is valid and handles any retry
+        scenarios.
+
+        If the response is valid, it retrieves the text from the response
+        and validates the sync check response.
+        If the response is not valid, it increases the current relogin interval and
+        continues to the next iteration of the loop.
+        If the response is valid, it resets the relogin interval and handles
+        any updates.
+        If updates exist, it continues to the next iteration of the loop.
+        If no updates exist, it handles the scenario where no updates exist and resets
+        the have_updates flag to False.
+
+        If the function is cancelled, it logs a debug message and returns.
+        """
         task_name = self._get_sync_task_name()
         LOG.debug("creating %s", task_name)
 
@@ -565,6 +661,17 @@ class PyADTPulse:
         text: str,
         current_relogin_interval: float,
     ) -> bool:
+        """
+        Validates the sync check response received from the ADT Pulse site.
+
+        Args:
+            response (ClientResponse): The HTTP response object.
+            text (str): The response text.
+            current_relogin_interval (float): The current relogin interval.
+
+        Returns:
+            bool: True if the sync check response is valid, False otherwise.
+        """
         if not handle_response(response, logging.ERROR, "Error querying ADT sync"):
             self._set_update_failed(response)
             return False
@@ -605,6 +712,14 @@ class PyADTPulse:
             LOG.debug("Sync token %s indicates no remote updates to process", text)
 
     def _pulse_session_thread(self) -> None:
+        """
+        Pulse the session thread.
+
+        Acquires the attribute lock and creates a background thread for the ADT
+        Pulse API. The thread runs the synchronous loop `_sync_loop()` until completion.
+        Once the loop finishes, the thread is closed, the pulse connection's event loop
+        is set to `None`, and the session thread is set to `None`.
+        """
         # lock is released in sync_loop()
         self._attribute_lock.acquire()
 
@@ -619,6 +734,22 @@ class PyADTPulse:
         self._session_thread = None
 
     async def _sync_loop(self) -> None:
+        """
+        Asynchronous function that represents the main loop of the synchronization
+        process.
+
+        This function is responsible for executing the synchronization logic. It starts
+        by calling the `async_login` method to perform the login operation. After that,
+        it releases the `_attribute_lock` to allow other tasks to access the attributes.
+        If the login operation was successful, it waits for the `_timeout_task` to
+        complete using the `asyncio.wait` function.  If the `_timeout_task` is not set,
+        it raises a `RuntimeError` to indicate that background tasks were not created.
+
+        After the waiting process, it enters a while loop that continues as long as the
+        `_authenticated` event is set. Inside the loop, it waits for 0.5 seconds using
+        the `asyncio.sleep` function. This wait allows the logout process to complete
+        before continuing with the synchronization logic.
+        """
         result = await self.async_login()
         self._attribute_lock.release()
         if result:
@@ -707,6 +838,17 @@ class PyADTPulse:
         ).result()
 
     async def _do_login_query(self, timeout: int = 30) -> ClientResponse | None:
+        """
+        Performs a login query to the Pulse site.
+
+        Args:
+            timeout (int, optional): The timeout value for the query in seconds.
+            Defaults to 30.
+
+        Returns:
+            ClientResponse | None: The response from the query or None if the login
+            was unsuccessful.
+        """
         try:
             retval = await self._pulse_connection.async_query(
                 ADT_LOGIN_URI,
@@ -738,6 +880,7 @@ class PyADTPulse:
         return retval
 
     async def _do_logout_query(self) -> None:
+        """Performs a logout query to the ADT Pulse site."""
         params = {}
         network: ADTPulseSite = self.site
         if network is not None:

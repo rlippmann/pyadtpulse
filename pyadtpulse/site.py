@@ -20,6 +20,9 @@ from .zones import ADTPulseFlattendZone, ADTPulseZones
 
 LOG = logging.getLogger(__name__)
 
+SECURITY_PANEL_ID = "1"
+SECURITY_PANEL_NAME = "Security Panel"
+
 
 class ADTPulseSite:
     """Represents an individual ADT Pulse site."""
@@ -201,6 +204,17 @@ class ADTPulseSite:
         # of data from ADT Pulse
 
     async def _get_device_attributes(self, device_id: str) -> Optional[dict[str, str]]:
+        """
+        Retrieves the attributes of a device.
+
+        Args:
+            device_id (str): The ID of the device to retrieve attributes for.
+
+        Returns:
+            Optional[dict[str, str]]: A dictionary of attribute names and their
+                corresponding values,
+                or None if the device response soup is None.
+        """
         result: dict[str, str] = {}
         if device_id == ADT_GATEWAY_STRING:
             device_response = await self._pulse_connection.async_query(
@@ -237,13 +251,19 @@ class ADTPulseSite:
         return result
 
     async def _set_device(self, device_id: str) -> None:
+        """
+        Sets the device attributes for the given device ID.
+
+        Args:
+            device_id (str): The ID of the device.
+        """
         dev_attr = await self._get_device_attributes(device_id)
         if dev_attr is None:
             return
         if device_id == ADT_GATEWAY_STRING:
             self._gateway.set_gateway_attributes(dev_attr)
             return
-        if device_id == "1":
+        if device_id == SECURITY_PANEL_ID:
             self._alarm_panel.set_alarm_attributes(dev_attr)
             return
         if device_id.isdigit():
@@ -252,6 +272,16 @@ class ADTPulseSite:
             LOG.debug("Zone %s is not an integer, skipping", device_id)
 
     async def _fetch_devices(self, soup: Optional[BeautifulSoup]) -> bool:
+        """
+        Fetches the devices from the given BeautifulSoup object and updates the zone attributes.
+
+        Args:
+            soup (Optional[BeautifulSoup]): The BeautifulSoup object containing the devices.
+
+        Returns:
+            bool: True if the devices were fetched and zone attributes were updated successfully,
+                  False otherwise.
+        """
         if not soup:
             response = await self._pulse_connection.async_query(ADT_SYSTEM_URI)
             soup = await make_soup(
@@ -306,7 +336,10 @@ class ADTPulseSite:
                     if result:
                         device_id = result[0]
 
-                        if device_id == "1" or device_name == "Security Panel":
+                        if (
+                            device_id == SECURITY_PANEL_ID
+                            or device_name == SECURITY_PANEL_NAME
+                        ):
                             task_list.append(create_task(self._set_device(device_id)))
                         elif zone_id and zone_id.isdecimal():
                             task_list.append(create_task(self._set_device(device_id)))
@@ -343,6 +376,15 @@ class ADTPulseSite:
             return self._update_zone_from_soup(soup)
 
     def _update_zone_from_soup(self, soup: BeautifulSoup) -> Optional[ADTPulseZones]:
+        """
+        Updates the zone information based on the provided BeautifulSoup object.
+
+        Args:
+            soup (BeautifulSoup): The BeautifulSoup object containing the parsed HTML.
+
+        Returns:
+            Optional[ADTPulseZones]: The updated ADTPulseZones object, or None if no zones exist.
+        """
         # parse ADT's convulated html to get sensor status
         with self._site_lock:
             gateway_online = False

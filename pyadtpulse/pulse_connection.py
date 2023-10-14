@@ -29,6 +29,8 @@ from .util import DebugRLock, make_soup
 RECOVERABLE_ERRORS = [429, 500, 502, 503, 504]
 LOG = logging.getLogger(__name__)
 
+MAX_RETRIES = 3
+
 
 class ADTPulseConnection:
     """ADT Pulse connection related attributes."""
@@ -154,9 +156,8 @@ class ADTPulseConnection:
         )
 
         retry = 0
-        max_retries = 3
         response: Optional[ClientResponse] = None
-        while retry < max_retries:
+        while retry < MAX_RETRIES:
             try:
                 async with self._session.request(
                     method,
