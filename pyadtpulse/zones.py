@@ -195,39 +195,39 @@ class ADTPulseZones(UserDict):
 
     def update_zone_attributes(self, dev_attr: dict[str, str]) -> None:
         """Update zone attributes."""
-        dName = dev_attr.get("name", "Unknown")
-        dType = dev_attr.get("type_model", "Unknown")
-        dZone = dev_attr.get("zone", "Unknown")
-        dStatus = dev_attr.get("status", "Unknown")
+        d_name = dev_attr.get("name", "Unknown")
+        d_type = dev_attr.get("type_model", "Unknown")
+        d_zone = dev_attr.get("zone", "Unknown")
+        d_status = dev_attr.get("status", "Unknown")
 
-        if dZone != "Unknown":
+        if d_zone != "Unknown":
             tags = None
             for search_term, default_tags in ADT_NAME_TO_DEFAULT_TAGS.items():
                 # convert to uppercase first
-                if search_term.upper() in dType.upper():
+                if search_term.upper() in d_type.upper():
                     tags = default_tags
                     break
             if not tags:
                 LOG.warning(
-                    "Unknown sensor type for '%s', defaulting to doorWindow", dType
+                    "Unknown sensor type for '%s', defaulting to doorWindow", d_type
                 )
                 tags = ("sensor", "doorWindow")
             LOG.debug(
                 "Retrieved sensor %s id: sensor-%s Status: %s, tags %s",
-                dName,
-                dZone,
-                dStatus,
+                d_name,
+                d_zone,
+                d_status,
                 tags,
             )
-            if "Unknown" in (dName, dStatus, dZone) or not dZone.isdecimal():
+            if "Unknown" in (d_name, d_status, d_zone) or not d_zone.isdecimal():
                 LOG.debug("Zone data incomplete, skipping...")
             else:
-                tmpzone = ADTPulseZoneData(dName, f"sensor-{dZone}", tags, dStatus)
-                self.update({int(dZone): tmpzone})
+                tmpzone = ADTPulseZoneData(d_name, f"sensor-{d_zone}", tags, d_status)
+                self.update({int(d_zone): tmpzone})
         else:
             LOG.debug(
                 "Skipping incomplete zone name: %s, zone: %s status: %s",
-                dName,
-                dZone,
-                dStatus,
+                d_name,
+                d_zone,
+                d_status,
             )
