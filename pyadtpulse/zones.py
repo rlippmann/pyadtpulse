@@ -79,17 +79,6 @@ class ADTPulseZones(UserDict):
         if not isinstance(key, int):
             raise ValueError("ADT Pulse Zone must be an integer")
 
-    def __getitem__(self, key: int) -> ADTPulseZoneData:
-        """Get a Zone.
-
-        Args:
-            key (int): zone id
-
-        Returns:
-            ADTPulseZoneData: zone data
-        """
-        return super().__getitem__(key)
-
     def _get_zonedata(self, key: int) -> ADTPulseZoneData:
         self._check_key(key)
         result: ADTPulseZoneData = self.data[key]
@@ -119,9 +108,7 @@ class ADTPulseZones(UserDict):
             key (int): zone id to change
             status (str): status to set
         """ """"""
-        temp = self._get_zonedata(key)
-        temp.status = status
-        self.__setitem__(key, temp)
+        self[key]["status"] = status
 
     def update_state(self, key: int, state: str) -> None:
         """Update zone state.
@@ -130,9 +117,7 @@ class ADTPulseZones(UserDict):
             key (int): zone id to change
             state (str): state to set
         """
-        temp = self._get_zonedata(key)
-        temp.state = state
-        self.__setitem__(key, temp)
+        self[key]["state"] = state
 
     def update_last_activity_timestamp(self, key: int, dt: datetime) -> None:
         """Update timestamp.
@@ -141,9 +126,7 @@ class ADTPulseZones(UserDict):
             key (int): zone id to change
             dt (datetime): timestamp to set
         """
-        temp = self._get_zonedata(key)
-        temp.last_activity_timestamp = int(dt.timestamp())
-        self.__setitem__(key, temp)
+        self[key]["last_activity_timestamp"] = dt.timestamp()
 
     def update_device_info(
         self,
@@ -164,11 +147,9 @@ class ADTPulseZones(UserDict):
             last_activity (datetime, optional): last_activity_datetime.
                 Defaults to datetime.now().
         """
-        temp = self._get_zonedata(key)
-        temp.state = state
-        temp.status = status
-        temp.last_activity_timestamp = int(last_activity.timestamp())
-        self.__setitem__(key, temp)
+        self.update_last_activity_timestamp(key, last_activity)
+        self.update_status(key, status)
+        self.update_state(key, state)
 
     def flatten(self) -> List[ADTPulseFlattendZone]:
         """Flattens ADTPulseZones into a list of ADTPulseFlattenedZones.
@@ -195,39 +176,39 @@ class ADTPulseZones(UserDict):
 
     def update_zone_attributes(self, dev_attr: dict[str, str]) -> None:
         """Update zone attributes."""
-        dName = dev_attr.get("name", "Unknown")
-        dType = dev_attr.get("type_model", "Unknown")
-        dZone = dev_attr.get("zone", "Unknown")
-        dStatus = dev_attr.get("status", "Unknown")
+        d_name = dev_attr.get("name", "Unknown")
+        d_type = dev_attr.get("type_model", "Unknown")
+        d_zone = dev_attr.get("zone", "Unknown")
+        d_status = dev_attr.get("status", "Unknown")
 
-        if dZone != "Unknown":
+        if d_zone != "Unknown":
             tags = None
             for search_term, default_tags in ADT_NAME_TO_DEFAULT_TAGS.items():
                 # convert to uppercase first
-                if search_term.upper() in dType.upper():
+                if search_term.upper() in d_type.upper():
                     tags = default_tags
                     break
             if not tags:
                 LOG.warning(
-                    "Unknown sensor type for '%s', defaulting to doorWindow", dType
+                    "Unknown sensor type for '%s', defaulting to doorWindow", d_type
                 )
                 tags = ("sensor", "doorWindow")
             LOG.debug(
                 "Retrieved sensor %s id: sensor-%s Status: %s, tags %s",
-                dName,
-                dZone,
-                dStatus,
+                d_name,
+                d_zone,
+                d_status,
                 tags,
             )
-            if "Unknown" in (dName, dStatus, dZone) or not dZone.isdecimal():
+            if "Unknown" in (d_name, d_status, d_zone) or not d_zone.isdecimal():
                 LOG.debug("Zone data incomplete, skipping...")
             else:
-                tmpzone = ADTPulseZoneData(dName, f"sensor-{dZone}", tags, dStatus)
-                self.update({int(dZone): tmpzone})
+                tmpzone = ADTPulseZoneData(d_name, f"sensor-{d_zone}", tags, d_status)
+                self.update({int(d_zone): tmpzone})
         else:
             LOG.debug(
                 "Skipping incomplete zone name: %s, zone: %s status: %s",
-                dName,
-                dZone,
-                dStatus,
+                d_name,
+                d_zone,
+                d_status,
             )

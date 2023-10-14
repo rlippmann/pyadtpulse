@@ -203,37 +203,37 @@ class ADTPulseSite:
     async def _get_device_attributes(self, device_id: str) -> Optional[dict[str, str]]:
         result: dict[str, str] = {}
         if device_id == ADT_GATEWAY_STRING:
-            deviceResponse = await self._pulse_connection.async_query(
+            device_response = await self._pulse_connection.async_query(
                 "/system/gateway.jsp", timeout=10
             )
         else:
-            deviceResponse = await self._pulse_connection.async_query(
+            device_response = await self._pulse_connection.async_query(
                 ADT_DEVICE_URI, extra_params={"id": device_id}
             )
-        deviceResponseSoup = await make_soup(
-            deviceResponse,
+        device_response_soup = await make_soup(
+            device_response,
             logging.DEBUG,
             "Failed loading device attributes from ADT Pulse service",
         )
-        if deviceResponseSoup is None:
+        if device_response_soup is None:
             return None
-        for devInfoRow in deviceResponseSoup.find_all(
+        for dev_info_row in device_response_soup.find_all(
             "td", {"class", "InputFieldDescriptionL"}
         ):
-            identityText = (
-                str(devInfoRow.get_text())
+            identity_text = (
+                str(dev_info_row.get_text())
                 .lower()
                 .strip()
                 .rstrip(":")
                 .replace(" ", "_")
                 .replace("/", "_")
             )
-            sibling = devInfoRow.find_next_sibling()
+            sibling = dev_info_row.find_next_sibling()
             if not sibling:
                 value = "Unknown"
             else:
                 value = str(sibling.get_text()).strip()
-            result.update({identityText: value})
+            result.update({identity_text: value})
         return result
 
     async def _set_device(self, device_id: str) -> None:
