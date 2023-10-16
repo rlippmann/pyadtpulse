@@ -559,35 +559,7 @@ class PyADTPulse:
             await self.site._set_device(ADT_GATEWAY_STRING)
 
     async def _sync_check_task(self) -> None:
-        """
-        Asynchronous function that performs a synchronization check task.
-
-        This function is responsible for performing a synchronization check task.
-        It then initializes variables for the response, retry after, initial relogin
-        interval, and last sync text.
-
-        The function validates that updates exist for the sync task and enters into
-        a loop.
-
-        Within the loop, it adjusts the backoff poll interval, sleeps for a
-        maximum of the retry after value or the poll interval, and performs a sync check
-        query.
-
-        The function then checks if the response is valid and handles any retry
-        scenarios.
-
-        If the response is valid, it retrieves the text from the response
-        and validates the sync check response.
-        If the response is not valid, it increases the current relogin interval and
-        continues to the next iteration of the loop.
-        If the response is valid, it resets the relogin interval and handles
-        any updates.
-        If updates exist, it continues to the next iteration of the loop.
-        If no updates exist, it handles the scenario where no updates exist and resets
-        the have_updates flag to False.
-
-        If the function is cancelled, it logs a debug message and returns.
-        """
+        """Asynchronous function that performs a synchronization check task."""
         task_name = self._get_sync_task_name()
         LOG.debug("creating %s", task_name)
 
@@ -600,11 +572,15 @@ class PyADTPulse:
 
         self._validate_updates_exist(task_name)
 
-        have_updates = False
+        last_sync_check_was_different = False
         while True:
             try:
                 self.site.gateway.adjust_backoff_poll_interval()
-                pi = self.site.gateway.poll_interval if not have_updates else 0.0
+                pi = (
+                    self.site.gateway.poll_interval
+                    if not last_sync_check_was_different
+                    else 0.0
+                )
                 await asyncio.sleep(max(retry_after, pi))
 
                 response = await self._perform_sync_check_query()
@@ -616,7 +592,7 @@ class PyADTPulse:
                     continue
 
                 text = await response.text()
-                if not self._validate_sync_check_response(
+                if not await self._validate_sync_check_response(
                     response, text, current_relogin_interval
                 ):
                     current_relogin_interval = min(
@@ -626,14 +602,15 @@ class PyADTPulse:
                     continue
                 current_relogin_interval = initial_relogin_interval
                 close_response(response)
-
                 if self._handle_updates_exist(text, last_sync_text):
-                    have_updates = True
+                    last_sync_check_was_different = True
+                    last_sync_text = text
                     continue
-
-                await self._handle_no_updates_exist(have_updates, task_name, text)
-                have_updates = False
-
+                if await self._handle_no_updates_exist(
+                    last_sync_check_was_different, task_name, text
+                ):
+                    last_sync_check_was_different = False
+                    continue
             except asyncio.CancelledError:
                 LOG.debug("%s cancelled", task_name)
                 close_response(response)
@@ -690,10 +667,9 @@ class PyADTPulse:
             return False
         return True
 
-    def _handle_updates_exist(self, text: str, last_sync_text: str):
+    def _handle_updates_exist(self, text: str, last_sync_text: str) -> bool:
         if text != last_sync_text:
             LOG.debug("Updates exist: %s, requerying", text)
-            last_sync_text = text
             return True
         return False
 
@@ -701,7 +677,6 @@ class PyADTPulse:
         self, have_updates: bool, task_name: str, text: str
     ) -> None:
         if have_updates:
-            have_updates = False
             if await self.async_update() is False:
                 LOG.debug("Pulse data update from %s failed", task_name)
                 return
