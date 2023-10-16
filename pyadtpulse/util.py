@@ -60,7 +60,7 @@ def remove_prefix(text: str, prefix: str) -> str:
     Returns:
         str: modified string
     """
-    return text[text.startswith(prefix) and len(prefix):]
+    return text[text.startswith(prefix) and len(prefix) :]
 
 
 async def make_soup(
