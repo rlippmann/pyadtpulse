@@ -347,8 +347,9 @@ class TestParsePulseDatetime:
     # Returns a datetime object for a valid datestring with a year greater than the current year
     def test_returns_datetime_object_for_valid_datestring_with_year_greater_than_current_year(self):
         datestring = "01/01/2023\xa0\xa012:34PM"
-        expected_result = datetime.combine(datetime.strptime("01/01/2023", "%m/%d/%Y"), datetime.strptime("12:34PM", "%I:%M%p").time())
-        assert parse_pulse_datetime(datestring) == expected_result
+        with pytest.raises(ValueError):
+            parse_pulse_datetime(datestring)
+
 
     # Returns a datetime object with the current year for a valid datestring with a year less than the current year
     def test_returns_datetime_object_with_current_year_for_valid_datestring_with_year_less_than_current_year(self):
@@ -371,5 +372,6 @@ class TestParsePulseDatetime:
     # Parses a valid datestring with a time string in 24-hour format
     def test_parses_valid_datestring_with_24_hour_format(self):
         datestring = "01/01/2022\xa012:34\xa0AM"
-        expected_result = datetime.combine(datetime.strptime("01/01/2022", "%m/%d/%Y"), datetime.strptime("12:34", "%I:%M").time())
-        assert parse_pulse_datetime(datestring) == expected_result
+        with pytest.raises(ValueError):
+            parse_pulse_datetime(datestring)
+

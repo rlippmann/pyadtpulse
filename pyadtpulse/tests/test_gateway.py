@@ -69,8 +69,8 @@ class TestADTPulseGateway:
             "_status_text": "ONLINE",
             "model": "1234",
             "serial_number": "5678",
-            "next_update": "Today 9:03 AM",
-            "last_update": "Yesterday 11:55 PM",
+            "next_update": "Today\xa09:03\xa0AM",
+            "last_update": "Yesterday\xa011:55\xa0PM",
             "firmware_version": "1.0",
             "hardware_version": "2.0",
             "primary_connection_type": "Ethernet",
@@ -94,7 +94,7 @@ class TestADTPulseGateway:
             datetime.combine(now.date(), time(9, 3)).timestamp()
         )
         assert gateway.last_update == int(
-            datetime.combine(yesterday.date(), time(11, 55)).timestamp()
+            datetime.combine(yesterday.date(), time(23, 55)).timestamp()
         )
         assert gateway.firmware_version == "1.0"
         assert gateway.hardware_version == "2.0"
@@ -230,6 +230,8 @@ class TestADTPulseGateway:
         assert gateway.device_lan_mac is None
         assert gateway.router_lan_ip_address is None
         assert gateway.router_wan_ip_address is None
+        assert gateway._current_poll_interval == ADT_DEFAULT_POLL_INTERVAL
+        assert gateway._initial_poll_interval == ADT_DEFAULT_POLL_INTERVAL
 
     # Check that set_gateway_attributes method sets None for None values and throws an
     # exception for mandatory parameters set to None
