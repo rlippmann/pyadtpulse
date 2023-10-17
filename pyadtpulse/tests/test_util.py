@@ -9,8 +9,8 @@ from pyadtpulse.util import (
     make_soup,
     parse_pulse_datetime,
 )
-
-
+LOG = logging.getLogger(__name__)
+LOG.setLevel(logging.DEBUG)
 class TestHandleResponse:
     # Returns True if response is not None and response.ok is True
     def test_returns_true_if_response_is_not_none_and_response_ok_is_true(self, mocker):
@@ -38,9 +38,9 @@ class TestHandleResponse:
 
     # Logs an error message if response is None
     def test_logs_error_message_if_response_is_none(self, mocker):
-        mocker.patch("logging.log")
-        handle_response(None, 0, "error")
-        logging.log.assert_called_once_with(0, "error")
+        mocker.patch("pyadtpulse.logging")
+        handle_response(None, logging.DEBUG, "error")
+        mocker.assert_called_once_with(logging.DEBUG, "error")
 
     # Returns False if response.ok is False
     def test_returns_false_if_response_ok_is_false(self, mocker):
@@ -53,7 +53,7 @@ class TestHandleResponse:
         response = mocker.Mock()
         response.ok = False
         response.status = 404
-        mocker.patch("logging.log")
+        mocker.patch("logging.log.log")
         handle_response(response, 0, "error")
         logging.log.assert_called_once_with(0, "error: error code = 404")
 
@@ -80,7 +80,7 @@ class TestHandleResponse:
         response.ok = False
         response.status = 404
         logger_mock = mocker.patch("logging.log")
-        handle_response(response, 0, "error")
+        handle_response(response, logging.DEBUG, "error")
         logger_mock.log.assert_called_once_with(0, "error: error code = 404")
 
     # Logs the error message and response status with the specified logging level
