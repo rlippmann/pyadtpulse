@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from threading import RLock
-from typing import Any, Optional
+from typing import Any
 
 from .const import ADT_DEFAULT_POLL_INTERVAL, ADT_GATEWAY_OFFLINE_POLL_INTERVAL
 from .util import parse_pulse_datetime
@@ -44,22 +44,22 @@ class ADTPulseGateway:
     _current_poll_interval: float = ADT_DEFAULT_POLL_INTERVAL
     _initial_poll_interval: float = ADT_DEFAULT_POLL_INTERVAL
     _attribute_lock = RLock()
-    model: Optional[str] = None
-    serial_number: Optional[str] = None
+    model: str | None = None
+    serial_number: str | None = None
     next_update: int = 0
     last_update: int = 0
-    firmware_version: Optional[str] = None
-    hardware_version: Optional[str] = None
-    primary_connection_type: Optional[str] = None
-    broadband_connection_status: Optional[str] = None
-    cellular_connection_status: Optional[str] = None
+    firmware_version: str | None = None
+    hardware_version: str | None = None
+    primary_connection_type: str | None = None
+    broadband_connection_status: str | None = None
+    cellular_connection_status: str | None = None
     cellular_connection_signal_strength: float = 0.0
-    broadband_lan_ip_address: Optional[IPv4Address | IPv6Address] = None
-    broadband_lan_mac: Optional[str] = None
-    device_lan_ip_address: Optional[IPv4Address | IPv6Address] = None
-    device_lan_mac: Optional[str] = None
-    router_lan_ip_address: Optional[IPv4Address | IPv6Address] = None
-    router_wan_ip_address: Optional[IPv4Address | IPv6Address] = None
+    broadband_lan_ip_address: IPv4Address | IPv6Address | None = None
+    broadband_lan_mac: str | None = None
+    device_lan_ip_address: IPv4Address | IPv6Address | None = None
+    device_lan_mac: str | None = None
+    router_lan_ip_address: IPv4Address | IPv6Address | None = None
+    router_wan_ip_address: IPv4Address | IPv6Address | None = None
 
     @property
     def is_online(self) -> bool:
@@ -108,7 +108,7 @@ class ADTPulseGateway:
             return self._current_poll_interval
 
     @poll_interval.setter
-    def poll_interval(self, new_interval: Optional[float]) -> None:
+    def poll_interval(self, new_interval: float | None) -> None:
         """Set polling interval.
 
         Args:

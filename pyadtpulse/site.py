@@ -5,7 +5,6 @@ from asyncio import Task, create_task, gather, get_event_loop, run_coroutine_thr
 from datetime import datetime
 from threading import RLock
 from time import time
-from typing import List, Optional, Union
 from warnings import warn
 
 # import dateparser
@@ -51,7 +50,7 @@ class ADTPulseSite:
         self._name = name
         self._last_updated: int = 0
         self._zones = ADTPulseZones()
-        self._site_lock: Union[RLock, DebugRLock]
+        self._site_lock: RLock | DebugRLock
         if isinstance(self._pulse_connection._attribute_lock, DebugRLock):
             self._site_lock = DebugRLock("ADTPulseSite._site_lock")
         else:
@@ -91,7 +90,7 @@ class ADTPulseSite:
             return self._last_updated
 
     @property
-    def site_lock(self) -> Union[RLock, DebugRLock]:
+    def site_lock(self) -> RLock | DebugRLock:
         """Get thread lock for site data.
 
         Not needed for async
@@ -146,7 +145,7 @@ class ADTPulseSite:
         return await self.alarm_control_panel.async_disarm(self._pulse_connection)
 
     @property
-    def zones(self) -> Optional[List[ADTPulseFlattendZone]]:
+    def zones(self) -> list[ADTPulseFlattendZone] | None:
         """Return all zones registered with the ADT Pulse account.
 
         (cached copy of last fetch)
@@ -158,7 +157,7 @@ class ADTPulseSite:
             return self._zones.flatten()
 
     @property
-    def zones_as_dict(self) -> Optional[ADTPulseZones]:
+    def zones_as_dict(self) -> ADTPulseZones | None:
         """Return zone information in dictionary form.
 
         Returns:
@@ -203,7 +202,7 @@ class ADTPulseSite:
         # if we should also update the zone details, force a fresh fetch
         # of data from ADT Pulse
 
-    async def _get_device_attributes(self, device_id: str) -> Optional[dict[str, str]]:
+    async def _get_device_attributes(self, device_id: str) -> dict[str, str] | None:
         """
         Retrieves the attributes of a device.
 
@@ -271,7 +270,7 @@ class ADTPulseSite:
         else:
             LOG.debug("Zone %s is not an integer, skipping", device_id)
 
-    async def _fetch_devices(self, soup: Optional[BeautifulSoup]) -> bool:
+    async def _fetch_devices(self, soup: BeautifulSoup | None) -> bool:
         """
         Fetches the devices from the given BeautifulSoup object and updates the zone attributes.
 
@@ -353,8 +352,8 @@ class ADTPulseSite:
             return True
 
     async def _async_update_zones_as_dict(
-        self, soup: Optional[BeautifulSoup]
-    ) -> Optional[ADTPulseZones]:
+        self, soup: BeautifulSoup | None
+    ) -> ADTPulseZones | None:
         """Update zone status information asynchronously.
 
         Returns:
@@ -375,7 +374,7 @@ class ADTPulseSite:
                 return None
             return self._update_zone_from_soup(soup)
 
-    def _update_zone_from_soup(self, soup: BeautifulSoup) -> Optional[ADTPulseZones]:
+    def _update_zone_from_soup(self, soup: BeautifulSoup) -> ADTPulseZones | None:
         """
         Updates the zone information based on the provided BeautifulSoup object.
 
@@ -463,7 +462,7 @@ class ADTPulseSite:
             self._last_updated = int(time())
             return self._zones
 
-    async def _async_update_zones(self) -> Optional[List[ADTPulseFlattendZone]]:
+    async def _async_update_zones(self) -> list[ADTPulseFlattendZone] | None:
         """Update zones asynchronously.
 
         Returns:
@@ -479,7 +478,7 @@ class ADTPulseSite:
                 return None
             return zonelist.flatten()
 
-    def update_zones(self) -> Optional[List[ADTPulseFlattendZone]]:
+    def update_zones(self) -> list[ADTPulseFlattendZone] | None:
         """Update zone status information.
 
         Returns:

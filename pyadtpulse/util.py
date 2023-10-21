@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from random import randint
 from threading import RLock, current_thread
-from typing import Optional
 
 from aiohttp import ClientResponse
 from bs4 import BeautifulSoup
@@ -16,7 +15,7 @@ LOG = logging.getLogger(__name__)
 
 
 def handle_response(
-    response: Optional[ClientResponse], level: int, error_message: str
+    response: ClientResponse | None, level: int, error_message: str
 ) -> bool:
     """Handle the response from query().
 
@@ -40,7 +39,7 @@ def handle_response(
     return False
 
 
-def close_response(response: Optional[ClientResponse]) -> None:
+def close_response(response: ClientResponse | None) -> None:
     """Close a response object, handles None.
 
     Args:
@@ -64,8 +63,8 @@ def remove_prefix(text: str, prefix: str) -> str:
 
 
 async def make_soup(
-    response: Optional[ClientResponse], level: int, error_message: str
-) -> Optional[BeautifulSoup]:
+    response: ClientResponse | None, level: int, error_message: str
+) -> BeautifulSoup | None:
     """Make a BS object from a Response.
 
     Args:

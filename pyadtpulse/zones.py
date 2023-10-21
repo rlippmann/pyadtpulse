@@ -3,7 +3,7 @@ import logging
 from collections import UserDict
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Tuple, TypedDict
+from typing import TypedDict
 
 ADT_NAME_TO_DEFAULT_TAGS = {
     "Door": ("sensor", "doorWindow"),
@@ -38,7 +38,7 @@ class ADTPulseZoneData:
 
     name: str
     id_: str
-    tags: Tuple = ADT_NAME_TO_DEFAULT_TAGS["Window"]
+    tags: tuple = ADT_NAME_TO_DEFAULT_TAGS["Window"]
     status: str = "Unknown"
     state: str = "Unknown"
     last_activity_timestamp: int = 0
@@ -60,7 +60,7 @@ class ADTPulseFlattendZone(TypedDict):
     zone: int
     name: str
     id_: str
-    tags: Tuple
+    tags: tuple
     status: str
     state: str
     last_activity_timestamp: int
@@ -170,13 +170,13 @@ class ADTPulseZones(UserDict):
         temp.last_activity_timestamp = int(last_activity.timestamp())
         self.__setitem__(key, temp)
 
-    def flatten(self) -> List[ADTPulseFlattendZone]:
+    def flatten(self) -> list[ADTPulseFlattendZone]:
         """Flattens ADTPulseZones into a list of ADTPulseFlattenedZones.
 
         Returns:
             List[ADTPulseFlattendZone]
         """
-        result: List[ADTPulseFlattendZone] = []
+        result: list[ADTPulseFlattendZone] = []
         for k, i in self.items():
             if not isinstance(i, ADTPulseZoneData):
                 raise ValueError("Invalid Zone data in ADTPulseZones")

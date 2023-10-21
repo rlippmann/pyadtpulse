@@ -102,11 +102,11 @@ class PyADTPulse:
         fingerprint: str,
         service_host: str = DEFAULT_API_HOST,
         user_agent=ADT_DEFAULT_HTTP_HEADERS["User-Agent"],
-        websession: Optional[ClientSession] = None,
+        websession: ClientSession | None = None,
         do_login: bool = True,
         debug_locks: bool = False,
-        keepalive_interval: Optional[int] = ADT_DEFAULT_KEEPALIVE_INTERVAL,
-        relogin_interval: Optional[int] = ADT_DEFAULT_RELOGIN_INTERVAL,
+        keepalive_interval: int | None = ADT_DEFAULT_KEEPALIVE_INTERVAL,
+        relogin_interval: int | None = ADT_DEFAULT_RELOGIN_INTERVAL,
         detailed_debug_logging: bool = False,
     ):
         """Create a PyADTPulse object.
@@ -147,25 +147,25 @@ class PyADTPulse:
             debug_locks=debug_locks,
         )
 
-        self._sync_task: Optional[asyncio.Task] = None
-        self._timeout_task: Optional[asyncio.Task] = None
+        self._sync_task: asyncio.Task | None = None
+        self._timeout_task: asyncio.Task | None = None
 
         # FIXME use thread event/condition, regular condition?
         # defer initialization to make sure we have an event loop
-        self._authenticated: Optional[asyncio.locks.Event] = None
-        self._login_exception: Optional[BaseException] = None
+        self._authenticated: asyncio.locks.Event | None = None
+        self._login_exception: BaseException | None = None
 
-        self._updates_exist: Optional[asyncio.locks.Event] = None
+        self._updates_exist: asyncio.locks.Event | None = None
 
-        self._session_thread: Optional[Thread] = None
-        self._attribute_lock: Union[RLock, DebugRLock]
+        self._session_thread: Thread | None = None
+        self._attribute_lock: RLock | DebugRLock
         if not debug_locks:
             self._attribute_lock = RLock()
         else:
             self._attribute_lock = DebugRLock("PyADTPulse._attribute_lock")
         self._last_login_time: int = 0
 
-        self._site: Optional[ADTPulseSite] = None
+        self._site: ADTPulseSite | None = None
         self.keepalive_interval = keepalive_interval
         self.relogin_interval = relogin_interval
         self._detailed_debug_logging = detailed_debug_logging
@@ -367,7 +367,7 @@ class PyADTPulse:
     # ... or perhaps better, just extract all from /system/settings.jsp
 
     def _check_retry_after(
-        self, response: Optional[ClientResponse], task_name: str
+        self, response: ClientResponse | None, task_name: str
     ) -> int:
         """
         Check the "Retry-After" header in the response and return the number of seconds
@@ -550,7 +550,7 @@ class PyADTPulse:
     async def _reset_pulse_cloud_timeout(self) -> ClientResponse | None:
         return await self._pulse_connection.async_query(ADT_TIMEOUT_URI, "POST")
 
-    def _handle_timeout_response(self, response: ClientResponse) -> Tuple[bool, int]:
+    def _handle_timeout_response(self, response: ClientResponse) -> tuple[bool, int]:
         """
         Handle the timeout response from the client.
 
@@ -791,7 +791,7 @@ class PyADTPulse:
             raise AuthenticationException(self._username)
 
     @property
-    def attribute_lock(self) -> Union[RLock, DebugRLock]:
+    def attribute_lock(self) -> RLock | DebugRLock:
         """Get attribute lock for PyADTPulse object.
 
         Returns:
@@ -800,7 +800,7 @@ class PyADTPulse:
         return self._attribute_lock
 
     @property
-    def loop(self) -> Optional[asyncio.AbstractEventLoop]:
+    def loop(self) -> asyncio.AbstractEventLoop | None:
         """Get event loop.
 
         Returns:
@@ -1078,7 +1078,7 @@ class PyADTPulse:
         ).result()
 
     @property
-    def sites(self) -> List[ADTPulseSite]:
+    def sites(self) -> list[ADTPulseSite]:
         """Return all sites for this ADT Pulse account."""
         warn(
             "multiple sites being removed, use pyADTPulse.site instead",

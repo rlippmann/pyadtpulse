@@ -5,7 +5,6 @@ import asyncio
 import re
 from random import uniform
 from threading import Lock, RLock
-from typing import Dict, Optional, Union
 
 from aiohttp import (
     ClientConnectionError,
@@ -49,7 +48,7 @@ class ADTPulseConnection:
     def __init__(
         self,
         host: str,
-        session: Optional[ClientSession] = None,
+        session: ClientSession | None = None,
         user_agent: str = ADT_DEFAULT_HTTP_HEADERS["User-Agent"],
         debug_locks: bool = False,
     ):
@@ -62,12 +61,12 @@ class ADTPulseConnection:
         else:
             self._session = session
         self._session.headers.update({"User-Agent": user_agent})
-        self._attribute_lock: Union[RLock, DebugRLock]
+        self._attribute_lock: RLock | DebugRLock
         if not debug_locks:
             self._attribute_lock = RLock()
         else:
             self._attribute_lock = DebugRLock("ADTPulseConnection._attribute_lock")
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def __del__(self):
         """Destructor for ADTPulseConnection."""
@@ -94,13 +93,13 @@ class ADTPulseConnection:
             self._api_host = host
 
     @property
-    def loop(self) -> Optional[asyncio.AbstractEventLoop]:
+    def loop(self) -> asyncio.AbstractEventLoop | None:
         """Get the event loop."""
         with self._attribute_lock:
             return self._loop
 
     @loop.setter
-    def loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> None:
+    def loop(self, loop: asyncio.AbstractEventLoop | None) -> None:
         """Set the event loop."""
         with self._attribute_lock:
             self._loop = loop
@@ -119,10 +118,10 @@ class ADTPulseConnection:
         self,
         uri: str,
         method: str = "GET",
-        extra_params: Optional[Dict[str, str]] = None,
-        extra_headers: Optional[Dict[str, str]] = None,
+        extra_params: dict[str, str] | None = None,
+        extra_headers: dict[str, str] | None = None,
         timeout: int = 1,
-    ) -> Optional[ClientResponse]:
+    ) -> ClientResponse | None:
         """
         Query ADT Pulse async.
 
@@ -156,7 +155,7 @@ class ADTPulseConnection:
         )
 
         retry = 0
-        response: Optional[ClientResponse] = None
+        response: ClientResponse | None = None
         while retry < MAX_RETRIES:
             try:
                 async with self._session.request(
@@ -188,7 +187,7 @@ class ADTPulseConnection:
                     response.raise_for_status()
                     retry = 4  # success, break loop
             except (
-                asyncio.TimeoutError,
+                TimeoutError,
                 ClientConnectionError,
                 ClientConnectorError,
                 ClientResponseError,
@@ -207,10 +206,10 @@ class ADTPulseConnection:
         self,
         uri: str,
         method: str = "GET",
-        extra_params: Optional[Dict[str, str]] = None,
-        extra_headers: Optional[Dict[str, str]] = None,
+        extra_params: dict[str, str] | None = None,
+        extra_headers: dict[str, str] | None = None,
         timeout=1,
-    ) -> Optional[ClientResponse]:
+    ) -> ClientResponse | None:
         """Query ADT Pulse async.
 
         Args:
@@ -230,9 +229,7 @@ class ADTPulseConnection:
             coro, self.check_sync("Attempting to run sync query from async login")
         ).result()
 
-    async def query_orb(
-        self, level: int, error_message: str
-    ) -> Optional[BeautifulSoup]:
+    async def query_orb(self, level: int, error_message: str) -> BeautifulSoup | None:
         """Query ADT Pulse ORB.
 
         Args:
@@ -260,7 +257,7 @@ class ADTPulseConnection:
 
     async def async_fetch_version(self) -> None:
         """Fetch ADT Pulse version."""
-        response: Optional[ClientResponse] = None
+        response: ClientResponse | None = None
         with ADTPulseConnection._class_threadlock:
             if ADTPulseConnection._api_version != ADT_DEFAULT_VERSION:
                 return
