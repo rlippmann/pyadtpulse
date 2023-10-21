@@ -177,9 +177,9 @@ class ADTPulseConnection:
                             response.status,
                             retry,
                         )
-                        if retry == max_retries:
+                        if retry == MAX_RETRIES:
                             LOG.warning(
-                                "Exceeded max retries of %d, giving up", max_retries
+                                "Exceeded max retries of %d, giving up", MAX_RETRIES
                             )
                             response.raise_for_status()
                         await asyncio.sleep(2**retry + uniform(0.0, 1.0))
