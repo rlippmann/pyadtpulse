@@ -414,7 +414,7 @@ class PyADTPulse:
             default_name (str): The default name to use if the task is None.
 
         Returns:
-            str: The name of the task if it is not None, otherwise the default name 
+            str: The name of the task if it is not None, otherwise the default name
             with a suffix indicating a possible internal error.
         """
         if task is not None:
