@@ -5,6 +5,7 @@ from asyncio import Task, create_task, gather, get_event_loop, run_coroutine_thr
 from datetime import datetime
 from threading import RLock
 from time import time
+from typing import Union
 from warnings import warn
 
 # import dateparser
@@ -90,7 +91,7 @@ class ADTPulseSite:
             return self._last_updated
 
     @property
-    def site_lock(self) -> RLock | DebugRLock:
+    def site_lock(self) -> Union[RLock, DebugRLock]:
         """Get thread lock for site data.
 
         Not needed for async

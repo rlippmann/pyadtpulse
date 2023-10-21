@@ -5,6 +5,7 @@ import asyncio
 import datetime
 import re
 import time
+from typing import Union
 from random import randint
 from threading import RLock, Thread
 from warnings import warn
@@ -790,7 +791,7 @@ class PyADTPulse:
             raise AuthenticationException(self._username)
 
     @property
-    def attribute_lock(self) -> RLock | DebugRLock:
+    def attribute_lock(self) -> Union[RLock, DebugRLock]:
         """Get attribute lock for PyADTPulse object.
 
         Returns:
