@@ -8,7 +8,6 @@ import json
 import sys
 from pprint import pprint
 from time import sleep
-from typing import Dict, Optional
 
 from pyadtpulse import PyADTPulse
 from pyadtpulse.const import (
@@ -208,7 +207,7 @@ def handle_args() -> argparse.Namespace:
     return args
 
 
-def load_parameters_from_json(json_file: str) -> Optional[Dict]:
+def load_parameters_from_json(json_file: str) -> dict | None:
     """Load parameters from a JSON file.
 
     Args:

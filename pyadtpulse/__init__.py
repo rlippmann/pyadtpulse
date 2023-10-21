@@ -7,7 +7,6 @@ import re
 import time
 from random import randint
 from threading import RLock, Thread
-from typing import List, Optional, Tuple, Union
 from warnings import warn
 
 import uvloop
