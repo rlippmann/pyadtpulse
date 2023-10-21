@@ -152,7 +152,7 @@ class ADTPulseConnection:
         self._session.headers.update(headers)
 
         LOG.debug(
-            "Attempting %s %s params=%s timeout=%d", method, uri, extra_params, timeout
+            "Attempting %s %s params=%s timeout=%d", method, url, extra_params, timeout
         )
 
         retry = 0
