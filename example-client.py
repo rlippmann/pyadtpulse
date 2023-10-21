@@ -33,14 +33,22 @@ KEEPALIVE_INTERVAL = "keepalive_interval"
 RELOGIN_INTERVAL = "relogin_interval"
 SERVICE_HOST = "service_host"
 POLL_INTERVAL = "poll_interval"
+DETAILED_DEBUG_LOGGING = "detailed_debug_logging"
 
-BOOLEAN_PARAMS = {USE_ASYNC, DEBUG_LOCKS, PULSE_DEBUG, TEST_ALARM}
+BOOLEAN_PARAMS = {
+    USE_ASYNC,
+    DEBUG_LOCKS,
+    PULSE_DEBUG,
+    TEST_ALARM,
+    DETAILED_DEBUG_LOGGING,
+}
 INT_PARAMS = {SLEEP_INTERVAL, KEEPALIVE_INTERVAL, RELOGIN_INTERVAL}
 FLOAT_PARAMS = {POLL_INTERVAL}
 
 # Default values
 DEFAULT_USE_ASYNC = True
 DEFAULT_DEBUG = False
+DEFAULT_DETAILED_DEBUG_LOGGING = False
 DEFAULT_TEST_ALARM = False
 DEFAULT_SLEEP_INTERVAL = 5
 DEFAULT_DEBUG_LOCKS = False
@@ -95,6 +103,12 @@ def handle_args() -> argparse.Namespace:
         type=bool,
         default=None,
         help="Set True to enable debugging",
+    )
+    parser.add_argument(
+        f"--{DETAILED_DEBUG_LOGGING}",
+        type=bool,
+        default=None,
+        help="Set True to enable detailed debug logging",
     )
     parser.add_argument(
         f"--{TEST_ALARM}",
@@ -162,6 +176,11 @@ def handle_args() -> argparse.Namespace:
         args.debug_locks if args.debug_locks is not None else DEFAULT_DEBUG_LOCKS
     )
     args.debug = args.debug if args.debug is not None else DEFAULT_DEBUG
+    args.detailed_debug_logging = (
+        args.detailed_debug_logging
+        if args.detailed_debug_logging is not None
+        else DEFAULT_DETAILED_DEBUG_LOGGING
+    )
     args.test_alarm = (
         args.test_alarm if args.test_alarm is not None else DEFAULT_TEST_ALARM
     )

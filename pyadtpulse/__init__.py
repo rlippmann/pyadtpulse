@@ -67,6 +67,7 @@ class PyADTPulse:
         "_relogin_interval",
         "_keepalive_interval",
         "_update_succeded",
+        "_detailed_debug_logging",
     )
 
     @staticmethod
@@ -106,6 +107,7 @@ class PyADTPulse:
         debug_locks: bool = False,
         keepalive_interval: Optional[int] = ADT_DEFAULT_KEEPALIVE_INTERVAL,
         relogin_interval: Optional[int] = ADT_DEFAULT_RELOGIN_INTERVAL,
+        detailed_debug_logging: bool = False,
     ):
         """Create a PyADTPulse object.
 
@@ -134,6 +136,7 @@ class PyADTPulse:
             relogin_interval (int, optional): number of minutes between relogin checks
                         defaults to ADT_DEFAULT_RELOGIN_INTERVAL,
                         minimum is ADT_MIN_RELOGIN_INTERVAL
+            detailed_debug_logging (bool, optional): enable detailed debug logging
         """
         self._check_service_host(service_host)
         self._init_login_info(username, password, fingerprint)
@@ -165,6 +168,7 @@ class PyADTPulse:
         self._site: Optional[ADTPulseSite] = None
         self.keepalive_interval = keepalive_interval
         self.relogin_interval = relogin_interval
+        self._detailed_debug_logging = detailed_debug_logging
         self._update_succeded = True
 
         # authenticate the user
@@ -293,6 +297,18 @@ class PyADTPulse:
             self._keepalive_interval = interval
             LOG.debug("keepalive interval set to %d", self._keepalive_interval)
 
+    @property
+    def detailed_debug_logging(self) -> bool:
+        """Get the detailed debug logging flag."""
+        with self._attribute_lock:
+            return self._detailed_debug_logging
+
+    @detailed_debug_logging.setter
+    def detailed_debug_logging(self, value: bool) -> None:
+        """Set detailed debug logging flag."""
+        with self._attribute_lock:
+            self._detailed_debug_logging = value
+
     async def _update_sites(self, soup: BeautifulSoup) -> None:
         with self._attribute_lock:
             if self._site is None:
@@ -398,7 +414,8 @@ class PyADTPulse:
             default_name (str): The default name to use if the task is None.
 
         Returns:
-            str: The name of the task if it is not None, otherwise the default name with a suffix indicating a possible internal error.
+            str: The name of the task if it is not None, otherwise the default name 
+            with a suffix indicating a possible internal error.
         """
         if task is not None:
             return task.get_name()
@@ -684,7 +701,8 @@ class PyADTPulse:
             self._validate_updates_exist(task_name)
             self._updates_exist.set()
         else:
-            LOG.debug("Sync token %s indicates no remote updates to process", text)
+            if self.detailed_debug_logging:
+                LOG.debug("Sync token %s indicates no remote updates to process", text)
 
     def _pulse_session_thread(self) -> None:
         """
