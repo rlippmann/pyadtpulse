@@ -5,6 +5,7 @@ import asyncio
 import re
 from random import uniform
 from threading import Lock, RLock
+from time import time
 
 from aiohttp import (
     ClientConnectionError,
@@ -44,6 +45,7 @@ class ADTPulseConnection:
         "_session",
         "_attribute_lock",
         "_loop",
+        "_last_login_time",
     )
 
     def __init__(
@@ -63,6 +65,7 @@ class ADTPulseConnection:
             self._session = session
         self._session.headers.update({"User-Agent": user_agent})
         self._attribute_lock: RLock | DebugRLock
+        self._last_login_time: int = 0
         if not debug_locks:
             self._attribute_lock = RLock()
         else:
@@ -104,6 +107,12 @@ class ADTPulseConnection:
         """Set the event loop."""
         with self._attribute_lock:
             self._loop = loop
+
+    @property
+    def last_login_time(self) -> int:
+        """Get the last login time."""
+        with self._attribute_lock:
+            return self._last_login_time
 
     def check_sync(self, message: str) -> asyncio.AbstractEventLoop:
         """Checks if sync login was performed.
@@ -331,6 +340,8 @@ class ADTPulseConnection:
         ):
             close_response(retval)
             return None
+        with self._attribute_lock:
+            self._last_login_time = int(time())
         return retval
 
     async def async_do_logout_query(self, site_id: str | None) -> None:

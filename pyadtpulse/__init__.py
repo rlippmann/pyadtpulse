@@ -56,7 +56,6 @@ class PyADTPulse:
         "_updates_exist",
         "_session_thread",
         "_attribute_lock",
-        "_last_login_time",
         "_site",
         "_username",
         "_password",
@@ -161,7 +160,6 @@ class PyADTPulse:
             self._attribute_lock = RLock()
         else:
             self._attribute_lock = DebugRLock("PyADTPulse._attribute_lock")
-        self._last_login_time: int = 0
 
         self._site: ADTPulseSite | None = None
         self.keepalive_interval = keepalive_interval
@@ -482,8 +480,10 @@ class PyADTPulse:
         Returns:
             bool: True if the user should re-login, False otherwise.
         """
-        return relogin_interval != 0 and time.time() - self._last_login_time > randint(
-            int(0.75 * relogin_interval), relogin_interval
+        return (
+            relogin_interval != 0
+            and time.time() - self._pulse_connection.last_login_time
+            > randint(int(0.75 * relogin_interval), relogin_interval)
         )
 
     async def _handle_relogin(self, task_name: str) -> bool:
@@ -818,7 +818,6 @@ class PyADTPulse:
         if not handle_response(response, logging.ERROR, "Could not re-login to Pulse"):
             await self.async_logout()
             return False
-        self._last_login_time = int(time.time())
         return True
 
     def quick_relogin(self) -> bool:
@@ -849,7 +848,6 @@ class PyADTPulse:
         )
         if response is None:
             return False
-        self._last_login_time = int(time.time())
         if self._pulse_connection.make_url(ADT_SUMMARY_URI) != str(response.url):
             # more specifically:
             # redirect to signin.jsp = username/password error
