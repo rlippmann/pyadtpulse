@@ -5,9 +5,9 @@ import asyncio
 import datetime
 import re
 import time
-from typing import Union
 from random import randint
 from threading import RLock, Thread
+from typing import Union
 from warnings import warn
 
 import uvloop
@@ -20,8 +20,6 @@ from .const import (
     ADT_DEFAULT_KEEPALIVE_INTERVAL,
     ADT_DEFAULT_RELOGIN_INTERVAL,
     ADT_GATEWAY_STRING,
-    ADT_LOGIN_URI,
-    ADT_LOGOUT_URI,
     ADT_MAX_KEEPALIVE_INTERVAL,
     ADT_MAX_RELOGIN_BACKOFF,
     ADT_MIN_RELOGIN_INTERVAL,
@@ -526,7 +524,7 @@ class PyADTPulse:
             bool: True if the re-login process is successful, False otherwise.
         """
         current_task = asyncio.current_task()
-        await self._do_logout_query()
+        await self._pulse_connection.async_do_logout_query(self.site.id)
         await asyncio.sleep(relogin_wait_time)
         if not await self.async_quick_relogin():
             task_name: str | None = None
@@ -814,10 +812,13 @@ class PyADTPulse:
 
         Doesn't do device queries or set connected event unless a failure occurs.
         FIXME:  Should probably just re-work login logic."""
-        response = await self._do_login_query()
+        response = await self._pulse_connection.async_do_login_query(
+            self.username, self._password, self._fingerprint
+        )
         if not handle_response(response, logging.ERROR, "Could not re-login to Pulse"):
             await self.async_logout()
             return False
+        self._last_login_time = int(time.time())
         return True
 
     def quick_relogin(self) -> bool:
@@ -829,59 +830,6 @@ class PyADTPulse:
                 "Attempting to do call sync quick re-login from async"
             ),
         ).result()
-
-    async def _do_login_query(self, timeout: int = 30) -> ClientResponse | None:
-        """
-        Performs a login query to the Pulse site.
-
-        Args:
-            timeout (int, optional): The timeout value for the query in seconds.
-            Defaults to 30.
-
-        Returns:
-            ClientResponse | None: The response from the query or None if the login
-            was unsuccessful.
-        """
-        try:
-            retval = await self._pulse_connection.async_query(
-                ADT_LOGIN_URI,
-                method="POST",
-                extra_params={
-                    "partner": "adt",
-                    "e": "ns",
-                    "usernameForm": self.username,
-                    "passwordForm": self._password,
-                    "fingerprint": self._fingerprint,
-                    "sun": "yes",
-                },
-                timeout=timeout,
-            )
-        except Exception as e:  # pylint: disable=broad-except
-            LOG.error("Could not log into Pulse site: %s", e)
-            return None
-        if retval is None:
-            LOG.error("Could not log into Pulse site.")
-            return None
-        if not handle_response(
-            retval,
-            logging.ERROR,
-            "Error encountered communicating with Pulse site on login",
-        ):
-            close_response(retval)
-            return None
-        self._last_login_time = int(time.time())
-        return retval
-
-    async def _do_logout_query(self) -> None:
-        """Performs a logout query to the ADT Pulse site."""
-        params = {}
-        network: ADTPulseSite = self.site
-        if network is not None:
-            params.update({"network": str(network.id)})
-        params.update({"partner": "adt"})
-        await self._pulse_connection.async_query(
-            ADT_LOGOUT_URI, extra_params=params, timeout=10
-        )
 
     async def async_login(self) -> bool:
         """Login asynchronously to ADT.
@@ -896,9 +844,12 @@ class PyADTPulse:
         LOG.debug("Authenticating to ADT Pulse cloud service as %s", self._username)
         await self._pulse_connection.async_fetch_version()
 
-        response = await self._do_login_query()
+        response = await self._pulse_connection.async_do_login_query(
+            self.username, self._password, self._fingerprint
+        )
         if response is None:
             return False
+        self._last_login_time = int(time.time())
         if self._pulse_connection.make_url(ADT_SUMMARY_URI) != str(response.url):
             # more specifically:
             # redirect to signin.jsp = username/password error
@@ -952,7 +903,7 @@ class PyADTPulse:
         await self._cancel_task(self._timeout_task)
         await self._cancel_task(self._sync_task)
         self._timeout_task = self._sync_task = None
-        await self._do_logout_query()
+        await self._pulse_connection.async_do_logout_query(self.site.id)
         if self._authenticated is not None:
             self._authenticated.clear()
 

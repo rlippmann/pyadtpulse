@@ -20,10 +20,11 @@ from .const import (
     ADT_DEFAULT_VERSION,
     ADT_HTTP_REFERER_URIS,
     ADT_LOGIN_URI,
+    ADT_LOGOUT_URI,
     ADT_ORB_URI,
     API_PREFIX,
 )
-from .util import DebugRLock, make_soup
+from .util import DebugRLock, close_response, handle_response, make_soup
 
 RECOVERABLE_ERRORS = [429, 500, 502, 503, 504]
 LOG = logging.getLogger(__name__)
@@ -288,3 +289,54 @@ class ADTPulseConnection:
                 "Couldn't auto-detect ADT Pulse version, defaulting to %s",
                 ADT_DEFAULT_VERSION,
             )
+
+    async def async_do_login_query(
+        self, username: str, password: str, fingerprint: str, timeout: int = 30
+    ) -> ClientResponse | None:
+        """
+        Performs a login query to the Pulse site.
+
+        Args:
+            timeout (int, optional): The timeout value for the query in seconds.
+            Defaults to 30.
+
+        Returns:
+            ClientResponse | None: The response from the query or None if the login
+            was unsuccessful.
+        """
+        try:
+            retval = await self.async_query(
+                ADT_LOGIN_URI,
+                method="POST",
+                extra_params={
+                    "partner": "adt",
+                    "e": "ns",
+                    "usernameForm": username,
+                    "passwordForm": password,
+                    "fingerprint": fingerprint,
+                    "sun": "yes",
+                },
+                timeout=timeout,
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            LOG.error("Could not log into Pulse site: %s", e)
+            return None
+        if retval is None:
+            LOG.error("Could not log into Pulse site.")
+            return None
+        if not handle_response(
+            retval,
+            logging.ERROR,
+            "Error encountered communicating with Pulse site on login",
+        ):
+            close_response(retval)
+            return None
+        return retval
+
+    async def async_do_logout_query(self, site_id: str | None) -> None:
+        """Performs a logout query to the ADT Pulse site."""
+        params = {}
+        if site_id is not None:
+            params.update({"network": site_id})
+        params.update({"partner": "adt"})
+        await self.async_query(ADT_LOGOUT_URI, extra_params=params, timeout=10)
