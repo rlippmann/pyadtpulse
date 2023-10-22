@@ -690,17 +690,19 @@ class PyADTPulse:
 
     async def _handle_no_updates_exist(
         self, have_updates: bool, task_name: str, text: str
-    ) -> None:
+    ) -> bool:
         if have_updates:
             if await self.async_update() is False:
                 LOG.debug("Pulse data update from %s failed", task_name)
-                return
+                return False
             # shouldn't need to call _validate_updates_exist, but just in case
             self._validate_updates_exist(task_name)
             self._updates_exist.set()
+            return True
         else:
             if self.detailed_debug_logging:
                 LOG.debug("Sync token %s indicates no remote updates to process", text)
+        return False
 
     def _pulse_session_thread(self) -> None:
         """
