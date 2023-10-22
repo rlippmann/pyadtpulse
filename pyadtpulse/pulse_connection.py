@@ -2,10 +2,11 @@
 
 import logging
 import asyncio
+import datetime
 import re
+import time
 from random import uniform
 from threading import Lock, RLock
-from time import time
 
 from aiohttp import (
     ClientConnectionError,
@@ -27,7 +28,7 @@ from .const import (
 )
 from .util import DebugRLock, close_response, handle_response, make_soup
 
-RECOVERABLE_ERRORS = [429, 500, 502, 503, 504]
+RECOVERABLE_ERRORS = [500, 502, 504]
 LOG = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
@@ -46,6 +47,7 @@ class ADTPulseConnection:
         "_attribute_lock",
         "_loop",
         "_last_login_time",
+        "_retry_after",
     )
 
     def __init__(
@@ -71,6 +73,7 @@ class ADTPulseConnection:
         else:
             self._attribute_lock = DebugRLock("ADTPulseConnection._attribute_lock")
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._retry_after = time.time()
 
     def __del__(self):
         """Destructor for ADTPulseConnection."""
@@ -114,6 +117,20 @@ class ADTPulseConnection:
         with self._attribute_lock:
             return self._last_login_time
 
+    @property
+    def retry_after(self) -> int:
+        """Get the number of seconds to wait before retrying HTTP requests."""
+        with self._attribute_lock:
+            return self._retry_after
+
+    @retry_after.setter
+    def retry_after(self, seconds: int) -> None:
+        """Set the number of seconds to wait before retrying HTTP requests."""
+        if seconds < time.time():
+            raise ValueError("retry_after cannot be less than current time")
+        with self._attribute_lock:
+            self._retry_after = seconds
+
     def check_sync(self, message: str) -> asyncio.AbstractEventLoop:
         """Checks if sync login was performed.
 
@@ -123,6 +140,44 @@ class ADTPulseConnection:
             if self._loop is None:
                 raise RuntimeError(message)
         return self._loop
+
+    def _set_retry_after(self, response: ClientResponse) -> None:
+        """
+        Check the "Retry-After" header in the response and set retry_after property
+        based upon it.
+
+        Parameters:
+            response (ClientResponse): The response object.
+
+        Returns:
+            None.
+        """
+        header_value = response.headers.get("Retry-After")
+        if header_value is None:
+            return
+        reason = "Unknown"
+        if response.status == 429:
+            reason = "Too many requests"
+        elif response.status == 503:
+            reason = "Service unavailable"
+        if header_value.isnumeric():
+            retval = int(header_value)
+        else:
+            try:
+                retval = int(
+                    datetime.datetime.strptime(
+                        header_value, "%a, %d %b %G %T %Z"
+                    ).timestamp()
+                )
+            except ValueError:
+                return
+        LOG.warning(
+            "Task %s received Retry-After %s due to %s",
+            asyncio.current_task(),
+            retval,
+            reason,
+        )
+        self.retry_after = int(time.time()) + retval
 
     async def async_query(
         self,
@@ -149,6 +204,9 @@ class ADTPulseConnection:
                                     None on failure
                                     ClientResponse will already be closed.
         """
+        current_time = time.time()
+        if self.retry_after > current_time:
+            await asyncio.sleep(self.retry_after - current_time)
         with ADTPulseConnection._class_threadlock:
             if ADTPulseConnection._api_version == ADT_DEFAULT_VERSION:
                 await self.async_fetch_version()
@@ -195,13 +253,18 @@ class ADTPulseConnection:
                         continue
 
                     response.raise_for_status()
-                    retry = 4  # success, break loop
+                    break
             except (
                 TimeoutError,
                 ClientConnectionError,
                 ClientConnectorError,
                 ClientResponseError,
             ) as ex:
+                if response.status in (429, 503):
+                    self._set_retry_after(response)
+                    close_response(response)
+                    response = None
+                    break
                 LOG.debug(
                     "Error %s occurred making %s request to %s, retrying",
                     ex.args,
@@ -341,7 +404,7 @@ class ADTPulseConnection:
             close_response(retval)
             return None
         with self._attribute_lock:
-            self._last_login_time = int(time())
+            self._last_login_time = int(time.time())
         return retval
 
     async def async_do_logout_query(self, site_id: str | None) -> None:

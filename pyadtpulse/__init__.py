@@ -2,7 +2,6 @@
 
 import logging
 import asyncio
-import datetime
 import re
 import time
 from random import randint
@@ -362,45 +361,6 @@ class PyADTPulse:
     #
     # ... or perhaps better, just extract all from /system/settings.jsp
 
-    def _check_retry_after(
-        self, response: ClientResponse | None, task_name: str
-    ) -> int:
-        """
-        Check the "Retry-After" header in the response and return the number of seconds
-        to wait before retrying the task.
-
-        Parameters:
-            response (Optional[ClientResponse]): The response object.
-            task_name (str): The name of the task.
-
-        Returns:
-            int: The number of seconds to wait before retrying the task.
-        """
-        if response is None:
-            return 0
-        header_value = response.headers.get("Retry-After")
-        if header_value is None:
-            return 0
-        if header_value.isnumeric():
-            retval = int(header_value)
-        else:
-            try:
-                retval = (
-                    datetime.datetime.strptime(header_value, "%a, %d %b %G %T %Z")
-                    - datetime.datetime.now()
-                ).seconds
-            except ValueError:
-                return 0
-        reason = "Unknown"
-        if response.status == 429:
-            reason = "Too many requests"
-        elif response.status == 503:
-            reason = "Service unavailable"
-        LOG.warning(
-            "Task %s received Retry-After %s due to %s", task_name, retval, reason
-        )
-        return retval
-
     def _get_task_name(self, task, default_name) -> str:
         """
         Get the name of a task.
@@ -452,9 +412,6 @@ class PyADTPulse:
                     )
                     or response is None
                 ):  # shut up linter
-                    continue
-                success, retry_after = self._handle_timeout_response(response)
-                if not success:
                     continue
                 await self._update_gateway_device_if_needed()
 
@@ -525,7 +482,7 @@ class PyADTPulse:
         """
         current_task = asyncio.current_task()
         await self._pulse_connection.async_do_logout_query(self.site.id)
-        await asyncio.sleep(relogin_wait_time)
+        self._pulse_connection.retry_after = relogin_wait_time + time.time()
         if not await self.async_quick_relogin():
             task_name: str | None = None
             if current_task is not None:
@@ -547,27 +504,6 @@ class PyADTPulse:
 
     async def _reset_pulse_cloud_timeout(self) -> ClientResponse | None:
         return await self._pulse_connection.async_query(ADT_TIMEOUT_URI, "POST")
-
-    def _handle_timeout_response(self, response: ClientResponse) -> tuple[bool, int]:
-        """
-        Handle the timeout response from the client.
-
-        Args:
-            response (ClientResponse): The client response object.
-
-        Returns:
-            Tuple[bool, int]: A tuple containing a boolean value indicating whether the
-            response was handled successfully and an integer indicating the
-            retry after value.
-        """
-        if not handle_response(
-            response, logging.INFO, "Failed resetting ADT Pulse cloud timeout"
-        ):
-            retry_after = self._check_retry_after(response, "Keepalive task")
-            close_response(response)
-            return False, retry_after
-        close_response(response)
-        return True, 0
 
     async def _update_gateway_device_if_needed(self) -> None:
         if self.site.gateway.next_update < time.time():
@@ -599,13 +535,11 @@ class PyADTPulse:
                 await asyncio.sleep(max(retry_after, pi))
 
                 response = await self._perform_sync_check_query()
-
-                if response is None or self._check_and_handle_retry(
-                    response, task_name
+                if not handle_response(
+                    response, logging.WARNING, "Error querying ADT sync"
                 ):
                     close_response(response)
                     continue
-
                 text = await response.text()
                 if not await self._validate_sync_check_response(
                     response, text, current_relogin_interval
@@ -613,10 +547,8 @@ class PyADTPulse:
                     current_relogin_interval = min(
                         ADT_MAX_RELOGIN_BACKOFF, current_relogin_interval * 2
                     )
-                    close_response(response)
                     continue
                 current_relogin_interval = initial_relogin_interval
-                close_response(response)
                 if self._handle_updates_exist(text, last_sync_text):
                     last_sync_check_was_different = True
                     last_sync_text = text
@@ -640,13 +572,6 @@ class PyADTPulse:
             ADT_SYNC_CHECK_URI, extra_params={"ts": str(int(time.time() * 1000))}
         )
 
-    def _check_and_handle_retry(self, response, task_name):
-        retry_after = self._check_retry_after(response, f"{task_name}")
-        if retry_after != 0:
-            self._set_update_failed(response)
-            return True
-        return False
-
     async def _validate_sync_check_response(
         self,
         response: ClientResponse,
@@ -666,8 +591,9 @@ class PyADTPulse:
         """
         if not handle_response(response, logging.ERROR, "Error querying ADT sync"):
             self._set_update_failed(response)
+            close_response(response)
             return False
-
+        close_response(response)
         pattern = r"\d+[-]\d+[-]\d+"
         if not re.match(pattern, text):
             LOG.warning(
