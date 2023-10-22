@@ -101,8 +101,8 @@ class PyADTPulse:
         websession: ClientSession | None = None,
         do_login: bool = True,
         debug_locks: bool = False,
-        keepalive_interval: int | None = ADT_DEFAULT_KEEPALIVE_INTERVAL,
-        relogin_interval: int | None = ADT_DEFAULT_RELOGIN_INTERVAL,
+        keepalive_interval: int = ADT_DEFAULT_KEEPALIVE_INTERVAL,
+        relogin_interval: int = ADT_DEFAULT_RELOGIN_INTERVAL,
         detailed_debug_logging: bool = False,
     ):
         """Create a PyADTPulse object.
