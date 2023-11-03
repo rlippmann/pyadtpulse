@@ -228,11 +228,6 @@ def parse_pulse_datetime(datestring: str) -> datetime:
     """
     datestring = datestring.replace("\xa0", " ").rstrip()
     split_string = [s for s in datestring.split(" ") if s.strip()]
-    if len(split_string) >= 2:
-        last_word = split_string[-1]
-        if last_word[-2:] in ("AM", "PM"):
-            split_string[-1] = last_word[:-2]
-            split_string.append(last_word[-2:])
     if len(split_string) < 3:
         raise ValueError("Invalid datestring")
     t = datetime.today()
