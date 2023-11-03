@@ -302,6 +302,7 @@ class ADTPulseConnection:
         extra_params: dict[str, str] | None = None,
         extra_headers: dict[str, str] | None = None,
         timeout=1,
+        requires_authentication: bool = True,
     ) -> ClientResponse | None:
         """Query ADT Pulse async.
 
@@ -312,12 +313,18 @@ class ADTPulseConnection:
             extra_headers (Optional[Dict], optional): extra HTTP headers.
                                                     Defaults to None.
             timeout (int, optional): timeout in seconds. Defaults to 1.
+            requires_authentication (bool, optional): True if authentication is required
+                                                    to perform query. Defaults to True.
+                                                    If true and authenticated flag not
+                                                    set, will wait for flag to be set.
         Returns:
             Optional[ClientResponse]: aiohttp.ClientResponse object
                                       None on failure
                                       ClientResponse will already be closed.
         """
-        coro = self.async_query(uri, method, extra_params, extra_headers, timeout)
+        coro = self.async_query(
+            uri, method, extra_params, extra_headers, timeout, requires_authentication
+        )
         return asyncio.run_coroutine_threadsafe(
             coro, self.check_sync("Attempting to run sync query from async login")
         ).result()
