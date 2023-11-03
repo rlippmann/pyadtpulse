@@ -127,7 +127,7 @@ class ADTPulseConnection:
 
     @retry_after.setter
     def retry_after(self, seconds: int) -> None:
-        """Set the number of seconds to wait before retrying HTTP requests."""
+        """Set time after which HTTP requests can be retried."""
         if seconds < time.time():
             raise ValueError("retry_after cannot be less than current time")
         with self._attribute_lock:
@@ -220,6 +220,12 @@ class ADTPulseConnection:
         """
         current_time = time.time()
         if self.retry_after > current_time:
+            LOG.debug(
+                "Retry after set, query %s for %s waiting until %s",
+                method,
+                uri,
+                datetime.datetime.fromtimestamp(self.retry_after),
+            )
             await asyncio.sleep(self.retry_after - current_time)
 
         if requires_authentication:
