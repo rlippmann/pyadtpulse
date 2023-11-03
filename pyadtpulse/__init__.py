@@ -65,7 +65,7 @@ class PyADTPulse:
         "_keepalive_interval",
         "_update_succeded",
         "_detailed_debug_logging",
-        "_current_relogin_backoff",
+        "_current_relogin_retry_count",
     )
 
     @staticmethod
@@ -166,7 +166,7 @@ class PyADTPulse:
         self.relogin_interval = relogin_interval
         self._detailed_debug_logging = detailed_debug_logging
         self._update_succeded = True
-        self._current_relogin_backoff = 0.0
+        self._current_relogin_retry_count = 0
 
         # authenticate the user
         if do_login and websession is None:
@@ -390,6 +390,21 @@ class PyADTPulse:
         Asynchronous function that runs a keepalive task to maintain the connection
         with the ADT Pulse cloud.
         """
+
+        async def reset_pulse_cloud_timeout() -> ClientResponse | None:
+            return await self._pulse_connection.async_query(ADT_TIMEOUT_URI, "POST")
+
+        async def update_gateway_device_if_needed() -> None:
+            if self.site.gateway.next_update < time.time():
+                await self.site._set_device(ADT_GATEWAY_STRING)
+
+        def should_relogin(relogin_interval: int) -> bool:
+            return (
+                relogin_interval != 0
+                and time.time() - self._pulse_connection.last_login_time
+                > randint(int(0.75 * relogin_interval), relogin_interval)
+            )
+
         response: ClientResponse | None = None
         task_name: str = self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
         LOG.debug("creating %s", task_name)
@@ -406,12 +421,12 @@ class PyADTPulse:
                 if not self.is_connected:
                     LOG.debug("%s: Skipping relogin because not connected", task_name)
                     continue
-                elif self._should_relogin(relogin_interval):
+                elif should_relogin(relogin_interval):
                     LOG.debug("%s relogging in", task_name)
                     await self._do_logout_and_relogin()
                     continue
                 LOG.debug("Resetting timeout")
-                response = await self._reset_pulse_cloud_timeout()
+                response = await reset_pulse_cloud_timeout()
                 if (
                     not handle_response(
                         response,
@@ -421,29 +436,12 @@ class PyADTPulse:
                     or response is None
                 ):  # shut up linter
                     continue
-                await self._update_gateway_device_if_needed()
+                await update_gateway_device_if_needed()
 
             except asyncio.CancelledError:
                 LOG.debug("%s cancelled", task_name)
                 close_response(response)
                 return
-
-    def _should_relogin(self, relogin_interval: int) -> bool:
-        """
-        Checks if the user should re-login based on the relogin interval and the time
-        since the last login.
-
-        Parameters:
-            relogin_interval (int): The interval in seconds between re-logins.
-
-        Returns:
-            bool: True if the user should re-login, False otherwise.
-        """
-        return (
-            relogin_interval != 0
-            and time.time() - self._pulse_connection.last_login_time
-            > randint(int(0.75 * relogin_interval), relogin_interval)
-        )
 
     async def _cancel_task(self, task: asyncio.Task | None) -> None:
         """
@@ -467,38 +465,87 @@ class PyADTPulse:
         Performs a logout and re-login process.
 
         Args:
-            relogin_wait_time (float): The amount of time to wait before re-logging in.
-
+            None.
         Returns:
             bool: True if the re-login process is successful, False otherwise.
         """
         await self.async_logout()
-        if self._current_relogin_backoff > self.relogin_interval:
-            await asyncio.sleep(self._current_relogin_backoff)
+        if self._current_relogin_retry_count != 0:
+            await asyncio.sleep(self._compute_login_backoff())
         retval = await self.async_login()
         if retval:
-            self._current_relogin_backoff = self.relogin_interval
+            self._current_relogin_retry_count = 0
         else:
-            self._current_relogin_backoff = min(
-                ADT_MAX_RELOGIN_BACKOFF, self._current_relogin_backoff * 2
-            )
+            self._current_relogin_retry_count += 1
         return retval
-
-    async def _reset_pulse_cloud_timeout(self) -> ClientResponse | None:
-        return await self._pulse_connection.async_query(ADT_TIMEOUT_URI, "POST")
-
-    async def _update_gateway_device_if_needed(self) -> None:
-        if self.site.gateway.next_update < time.time():
-            await self.site._set_device(ADT_GATEWAY_STRING)
 
     async def _sync_check_task(self) -> None:
         """Asynchronous function that performs a synchronization check task."""
+
+        async def perform_sync_check_query():
+            return await self._pulse_connection.async_query(
+                ADT_SYNC_CHECK_URI, extra_params={"ts": str(int(time.time() * 1000))}
+            )
+
+        def set_update_failed() -> None:
+            """Sets update failed, sets updates_exist to notify wait_for_update."""
+            with self._attribute_lock:
+                self._update_succeded = False
+                if self._updates_exist is not None:
+                    self._updates_exist.set()
+
         task_name = self._get_sync_task_name()
         LOG.debug("creating %s", task_name)
 
         response = None
         last_sync_text = "0-0-0"
         last_sync_check_was_different = False
+
+        async def validate_sync_check_response() -> bool:
+            """
+            Validates the sync check response received from the ADT Pulse site.
+            Returns:
+                bool: True if the sync check response is valid, False otherwise.
+            """
+            if not handle_response(response, logging.ERROR, "Error querying ADT sync"):
+                set_update_failed()
+                close_response(response)
+                return False
+            close_response(response)
+            pattern = r"\d+[-]\d+[-]\d+"
+            if not re.match(pattern, text):
+                LOG.warning(
+                    "Unexpected sync check format (%s), "
+                    "forcing re-auth after %f seconds",
+                    text,
+                    self._compute_login_backoff(),
+                )
+                LOG.debug("Received %s from ADT Pulse site", text)
+                await self._do_logout_and_relogin()
+                set_update_failed()
+                return False
+            return True
+
+        async def handle_no_updates_exist() -> bool:
+            if last_sync_check_was_different:
+                if await self.async_update() is False:
+                    LOG.debug("Pulse data update from %s failed", task_name)
+                    return False
+                self._updates_exist.set()
+                return True
+            else:
+                if self.detailed_debug_logging:
+                    LOG.debug(
+                        "Sync token %s indicates no remote updates to process", text
+                    )
+            return False
+
+        def handle_updates_exist() -> bool:
+            if text != last_sync_text:
+                LOG.debug("Updates exist: %s, requerying", text)
+                return True
+            return False
+
         while True:
             try:
                 self.site.gateway.adjust_backoff_poll_interval()
@@ -517,22 +564,20 @@ class PyADTPulse:
                     continue
                 await asyncio.sleep(pi)
 
-                response = await self._perform_sync_check_query()
+                response = await perform_sync_check_query()
                 if not handle_response(
                     response, logging.WARNING, "Error querying ADT sync"
                 ):
                     close_response(response)
                     continue
                 text = await response.text()
-                if not await self._validate_sync_check_response(response, text):
+                if not await validate_sync_check_response():
                     continue
-                if self._handle_updates_exist(text, last_sync_text):
+                if handle_updates_exist():
                     last_sync_check_was_different = True
                     last_sync_text = text
                     continue
-                if await self._handle_no_updates_exist(
-                    last_sync_check_was_different, task_name, text
-                ):
+                if await handle_no_updates_exist():
                     last_sync_check_was_different = False
                     continue
             except asyncio.CancelledError:
@@ -540,64 +585,11 @@ class PyADTPulse:
                 close_response(response)
                 return
 
-    async def _perform_sync_check_query(self):
-        return await self._pulse_connection.async_query(
-            ADT_SYNC_CHECK_URI, extra_params={"ts": str(int(time.time() * 1000))}
+    def _compute_login_backoff(self) -> float:
+        return min(
+            ADT_MAX_RELOGIN_BACKOFF,
+            self.site.gateway.poll_interval * (2 ^ self._current_relogin_retry_count),
         )
-
-    async def _validate_sync_check_response(
-        self,
-        response: ClientResponse,
-        text: str,
-    ) -> bool:
-        """
-        Validates the sync check response received from the ADT Pulse site.
-
-        Args:
-            response (ClientResponse): The HTTP response object.
-            text (str): The response text.
-
-        Returns:
-            bool: True if the sync check response is valid, False otherwise.
-        """
-        if not handle_response(response, logging.ERROR, "Error querying ADT sync"):
-            self._set_update_failed(response)
-            close_response(response)
-            return False
-        close_response(response)
-        pattern = r"\d+[-]\d+[-]\d+"
-        if not re.match(pattern, text):
-            LOG.warning(
-                "Unexpected sync check format (%s), "
-                "forcing re-auth after %f seconds",
-                text,
-                self._current_relogin_backoff,
-            )
-            LOG.debug("Received %s from ADT Pulse site", text)
-            await self._do_logout_and_relogin()
-            self._set_update_failed(None)
-            return False
-        return True
-
-    def _handle_updates_exist(self, text: str, last_sync_text: str) -> bool:
-        if text != last_sync_text:
-            LOG.debug("Updates exist: %s, requerying", text)
-            return True
-        return False
-
-    async def _handle_no_updates_exist(
-        self, have_updates: bool, task_name: str, text: str
-    ) -> bool:
-        if have_updates:
-            if await self.async_update() is False:
-                LOG.debug("Pulse data update from %s failed", task_name)
-                return False
-            self._updates_exist.set()
-            return True
-        else:
-            if self.detailed_debug_logging:
-                LOG.debug("Sync token %s indicates no remote updates to process", text)
-        return False
 
     def _pulse_session_thread(self) -> None:
         """
@@ -780,16 +772,6 @@ class PyADTPulse:
         asyncio.run_coroutine_threadsafe(coro, loop)
         if sync_thread is not None:
             sync_thread.join()
-
-    def _set_update_failed(self, resp: ClientResponse | None) -> None:
-        """Sets update failed, sets updates_exist to notify wait_for_update
-        and closes response if necessary."""
-        with self._attribute_lock:
-            self._update_succeded = False
-            if resp is not None:
-                close_response(resp)
-            if self._updates_exist is not None:
-                self._updates_exist.set()
 
     def _check_update_succeeded(self) -> bool:
         """Check if update succeeded, clears the update event and
