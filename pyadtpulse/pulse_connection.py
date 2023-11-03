@@ -254,10 +254,10 @@ class ADTPulseConnection:
                     data=extra_params if method == "POST" else None,
                     timeout=timeout,
                 ) as response:
+                    retry += 1
                     await response.text()
 
                     if response.status in RECOVERABLE_ERRORS:
-                        retry += 1
                         LOG.info(
                             "query returned recoverable error code %s, "
                             "retrying (count = %d)",
