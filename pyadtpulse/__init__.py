@@ -388,7 +388,6 @@ class PyADTPulse:
         Asynchronous function that runs a keepalive task to maintain the connection
         with the ADT Pulse cloud.
         """
-        retry_after: int = 0
         response: ClientResponse | None = None
         task_name: str = self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
         LOG.debug("creating %s", task_name)
@@ -397,11 +396,15 @@ class PyADTPulse:
             self._validate_authenticated_event()
         while self._authenticated.is_set():
             relogin_interval = self.relogin_interval
-            if self._should_relogin(relogin_interval):
-                if not await self._handle_relogin(task_name):
-                    return
             try:
-                await asyncio.sleep(self._calculate_sleep_time(retry_after))
+                await asyncio.sleep(self.keepalive_interval * 60)
+                if self._pulse_connection.retry_after > time.time():
+                    continue
+                if self._should_relogin(relogin_interval):
+                    if not await self._handle_relogin(task_name):
+                        return
+                    else:
+                        continue
                 LOG.debug("Resetting timeout")
                 response = await self._reset_pulse_cloud_timeout()
                 if (
@@ -482,7 +485,7 @@ class PyADTPulse:
         """
         current_task = asyncio.current_task()
         await self._pulse_connection.async_do_logout_query(self.site.id)
-        self._pulse_connection.retry_after = relogin_wait_time + time.time()
+        self._pulse_connection.retry_after = int(relogin_wait_time + time.time())
         if not await self.async_quick_relogin():
             task_name: str | None = None
             if current_task is not None:
@@ -498,9 +501,6 @@ class PyADTPulse:
                     coro, name=f"{SYNC_CHECK_TASK_NAME}: Async session"
                 )
         return True
-
-    def _calculate_sleep_time(self, retry_after: int) -> int:
-        return self.keepalive_interval * 60 + retry_after
 
     async def _reset_pulse_cloud_timeout(self) -> ClientResponse | None:
         return await self._pulse_connection.async_query(ADT_TIMEOUT_URI, "POST")
