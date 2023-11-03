@@ -148,10 +148,9 @@ class PyADTPulse:
 
         # FIXME use thread event/condition, regular condition?
         # defer initialization to make sure we have an event loop
-        self._authenticated: asyncio.locks.Event | None = None
         self._login_exception: BaseException | None = None
 
-        self._updates_exist: asyncio.locks.Event | None = None
+        self._updates_exist = asyncio.locks.Event()
 
         self._session_thread: Thread | None = None
         self._attribute_lock: RLock | DebugRLock
@@ -392,9 +391,7 @@ class PyADTPulse:
         task_name: str = self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
         LOG.debug("creating %s", task_name)
 
-        with self._attribute_lock:
-            self._validate_authenticated_event()
-        while self._authenticated.is_set():
+        while self._pulse_connection.authenticated_flag.is_set():
             relogin_interval = self.relogin_interval
             try:
                 await asyncio.sleep(self.keepalive_interval * 60)
@@ -422,12 +419,6 @@ class PyADTPulse:
                 LOG.debug("%s cancelled", task_name)
                 close_response(response)
                 return
-
-    def _validate_authenticated_event(self) -> None:
-        if self._authenticated is None:
-            raise RuntimeError(
-                "Keepalive task is running without an authenticated event"
-            )
 
     def _should_relogin(self, relogin_interval: int) -> bool:
         """
@@ -520,9 +511,6 @@ class PyADTPulse:
             current_relogin_interval
         ) = self.site.gateway.poll_interval
         last_sync_text = "0-0-0"
-
-        self._validate_updates_exist(task_name)
-
         last_sync_check_was_different = False
         while True:
             try:
@@ -562,10 +550,6 @@ class PyADTPulse:
                 LOG.debug("%s cancelled", task_name)
                 close_response(response)
                 return
-
-    def _validate_updates_exist(self, task_name: str) -> None:
-        if self._updates_exist is None:
-            raise RuntimeError(f"{task_name} started without update event initialized")
 
     async def _perform_sync_check_query(self):
         return await self._pulse_connection.async_query(
@@ -621,8 +605,6 @@ class PyADTPulse:
             if await self.async_update() is False:
                 LOG.debug("Pulse data update from %s failed", task_name)
                 return False
-            # shouldn't need to call _validate_updates_exist, but just in case
-            self._validate_updates_exist(task_name)
             self._updates_exist.set()
             return True
         else:
@@ -685,10 +667,9 @@ class PyADTPulse:
             else:
                 # we should never get here
                 raise RuntimeError("Background pyadtpulse tasks not created")
-        if self._authenticated is not None:
-            while self._authenticated.is_set():
-                # busy wait until logout is done
-                await asyncio.sleep(0.5)
+        while self._pulse_connection.authenticated_flag.is_set():
+            # busy wait until logout is done
+            await asyncio.sleep(0.5)
 
     def login(self) -> None:
         """Login to ADT Pulse and generate access token.
@@ -763,11 +744,6 @@ class PyADTPulse:
 
         Returns: True if login successful
         """
-        if self._authenticated is None:
-            self._authenticated = asyncio.locks.Event()
-        else:
-            self._authenticated.clear()
-
         LOG.debug("Authenticating to ADT Pulse cloud service as %s", self._username)
         await self._pulse_connection.async_fetch_version()
 
@@ -804,11 +780,10 @@ class PyADTPulse:
             )
             return False
         # need to set authenticated here to prevent login loop
-        self._authenticated.set()
         await self._update_sites(soup)
         if self._site is None:
             LOG.error("Could not retrieve any sites, login failed")
-            self._authenticated.clear()
+            await self.async_logout()
             return False
 
         # since we received fresh data on the status of the alarm, go ahead
@@ -818,8 +793,6 @@ class PyADTPulse:
             self._timeout_task = asyncio.create_task(
                 self._keepalive_task(), name=f"{KEEPALIVE_TASK_NAME}"
             )
-        if self._updates_exist is None:
-            self._updates_exist = asyncio.locks.Event()
         await asyncio.sleep(0)
         return True
 
@@ -830,8 +803,6 @@ class PyADTPulse:
         await self._cancel_task(self._sync_task)
         self._timeout_task = self._sync_task = None
         await self._pulse_connection.async_do_logout_query(self.site.id)
-        if self._authenticated is not None:
-            self._authenticated.clear()
 
     def logout(self) -> None:
         """Log out of ADT Pulse."""
@@ -862,8 +833,6 @@ class PyADTPulse:
         with self._attribute_lock:
             old_update_succeded = self._update_succeded
             self._update_succeded = True
-            if self._updates_exist is None:
-                return False
             if self._updates_exist.is_set():
                 self._updates_exist.clear()
             return old_update_succeded
@@ -915,12 +884,7 @@ class PyADTPulse:
         Returns:
             bool: True if connected
         """
-        with self._attribute_lock:
-            if self._authenticated is None:
-                return False
-            return self._authenticated.is_set()
-
-    # FIXME? might have to move this to site for multiple sites
+        return self._pulse_connection.authenticated_flag.is_set()
 
     async def async_update(self) -> bool:
         """Update ADT Pulse data.

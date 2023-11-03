@@ -48,6 +48,7 @@ class ADTPulseConnection:
         "_loop",
         "_last_login_time",
         "_retry_after",
+        "_authenticated_flag",
     )
 
     def __init__(
@@ -60,6 +61,7 @@ class ADTPulseConnection:
         """Initialize ADT Pulse connection."""
         self._api_host = host
         self._allocated_session = False
+        self._authenticated_flag: asyncio.Event()
         if session is None:
             self._allocated_session = True
             self._session = ClientSession()
@@ -73,7 +75,7 @@ class ADTPulseConnection:
         else:
             self._attribute_lock = DebugRLock("ADTPulseConnection._attribute_lock")
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._retry_after = time.time()
+        self._retry_after = int(time.time())
 
     def __del__(self):
         """Destructor for ADTPulseConnection."""
@@ -130,6 +132,12 @@ class ADTPulseConnection:
             raise ValueError("retry_after cannot be less than current time")
         with self._attribute_lock:
             self._retry_after = seconds
+
+    @property
+    def authenticated_flag(self) -> asyncio.Event:
+        """Get the authenticated flag."""
+        with self._attribute_lock:
+            return self._authenticated_flag
 
     def check_sync(self, message: str) -> asyncio.AbstractEventLoop:
         """Checks if sync login was performed.
