@@ -11,12 +11,12 @@ from warnings import warn
 # import dateparser
 from bs4 import BeautifulSoup
 
-from .alarm_panel import ADTPulseAlarmPanel
-from .const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_SYSTEM_URI
-from .gateway import ADTPulseGateway
-from .pulse_connection import ADTPulseConnection
-from .util import DebugRLock, make_soup, parse_pulse_datetime, remove_prefix
-from .zones import ADTPulseFlattendZone, ADTPulseZones
+from pyadtpulse.alarm_panel import ADTPulseAlarmPanel
+from pyadtpulse.const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_SYSTEM_URI
+from pyadtpulse.gateway import ADTPulseGateway
+from pyadtpulse.pulse_connection import ADTPulseConnection
+from pyadtpulse.util import DebugRLock, make_soup, parse_pulse_datetime, remove_prefix
+from pyadtpulse.zones import ADTPulseFlattendZone, ADTPulseZones
 
 LOG = logging.getLogger(__name__)
 

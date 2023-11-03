@@ -6,8 +6,11 @@ from ipaddress import IPv4Address, IPv6Address, ip_address
 from threading import RLock
 from typing import Any
 
-from .const import ADT_DEFAULT_POLL_INTERVAL, ADT_GATEWAY_OFFLINE_POLL_INTERVAL
-from .util import parse_pulse_datetime
+from pyadtpulse.const import (
+    ADT_DEFAULT_POLL_INTERVAL,
+    ADT_GATEWAY_OFFLINE_POLL_INTERVAL,
+)
+from pyadtpulse.util import parse_pulse_datetime
 
 LOG = logging.getLogger(__name__)
 
