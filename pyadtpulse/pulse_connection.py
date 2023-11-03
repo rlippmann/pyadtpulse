@@ -61,7 +61,7 @@ class ADTPulseConnection:
         """Initialize ADT Pulse connection."""
         self._api_host = host
         self._allocated_session = False
-        self._authenticated_flag: asyncio.Event()
+        self._authenticated_flag = asyncio.Event()
         if session is None:
             self._allocated_session = True
             self._session = ClientSession()
@@ -194,6 +194,7 @@ class ADTPulseConnection:
         extra_params: dict[str, str] | None = None,
         extra_headers: dict[str, str] | None = None,
         timeout: int = 1,
+        requires_authentication: bool = True,
     ) -> ClientResponse | None:
         """
         Query ADT Pulse async.
@@ -206,6 +207,11 @@ class ADTPulseConnection:
             extra_headers (Optional[Dict], optional): extra HTTP headers.
                                                     Defaults to None.
             timeout (int, optional): timeout in seconds. Defaults to 1.
+            requires_authentication (bool, optional): True if authentication is
+                                                    required to perform query.
+                                                    Defaults to True.
+                                                    If true and authenticated flag not
+                                                    set, will wait for flag to be set.
 
         Returns:
             Optional[ClientResponse]: aiohttp.ClientResponse object
@@ -215,9 +221,15 @@ class ADTPulseConnection:
         current_time = time.time()
         if self.retry_after > current_time:
             await asyncio.sleep(self.retry_after - current_time)
-        with ADTPulseConnection._class_threadlock:
-            if ADTPulseConnection._api_version == ADT_DEFAULT_VERSION:
-                await self.async_fetch_version()
+
+        if requires_authentication:
+            LOG.info("%s for %s waiting for authenticated flag to be set", method, uri)
+            await self._authenticated_flag.wait()
+        else:
+            with ADTPulseConnection._class_threadlock:
+                if ADTPulseConnection._api_version == ADT_DEFAULT_VERSION:
+                    await self.async_fetch_version()
+
         url = self.make_url(uri)
 
         headers = {"Accept": ADT_DEFAULT_HTTP_HEADERS["Accept"]}
@@ -268,7 +280,7 @@ class ADTPulseConnection:
                 ClientConnectorError,
                 ClientResponseError,
             ) as ex:
-                if response.status in (429, 503):
+                if response and response.status in (429, 503):
                     self._set_retry_after(response)
                     close_response(response)
                     response = None
@@ -397,6 +409,7 @@ class ADTPulseConnection:
                     "sun": "yes",
                 },
                 timeout=timeout,
+                requires_authentication=False,
             )
         except Exception as e:  # pylint: disable=broad-except
             LOG.error("Could not log into Pulse site: %s", e)
@@ -421,4 +434,9 @@ class ADTPulseConnection:
         if site_id is not None:
             params.update({"network": site_id})
         params.update({"partner": "adt"})
-        await self.async_query(ADT_LOGOUT_URI, extra_params=params, timeout=10)
+        await self.async_query(
+            ADT_LOGOUT_URI,
+            extra_params=params,
+            timeout=10,
+            requires_authentication=False,
+        )
