@@ -314,8 +314,8 @@ class PyADTPulse:
                 await self._initialize_sites(soup)
                 if self._site is None:
                     raise RuntimeError("pyadtpulse could not retrieve site")
-            self._site.alarm_control_panel._update_alarm_from_soup(soup)
-            self._site._update_zone_from_soup(soup)
+            self._site.alarm_control_panel.update_alarm_from_soup(soup)
+            self._site.update_zone_from_soup(soup)
 
     async def _initialize_sites(self, soup: BeautifulSoup) -> None:
         """
@@ -342,12 +342,12 @@ class PyADTPulse:
 
                     # fetch zones first, so that we can have the status
                     # updated with _update_alarm_status
-                    if not await new_site._fetch_devices(None):
+                    if not await new_site.fetch_devices(None):
                         LOG.error("Could not fetch zones from ADT site")
-                    new_site.alarm_control_panel._update_alarm_from_soup(soup)
+                    new_site.alarm_control_panel.update_alarm_from_soup(soup)
                     if new_site.alarm_control_panel.status == ADT_ALARM_UNKNOWN:
                         new_site.gateway.is_online = False
-                    new_site._update_zone_from_soup(soup)
+                    new_site.update_zone_from_soup(soup)
                     with self._attribute_lock:
                         self._site = new_site
                     return
@@ -398,7 +398,7 @@ class PyADTPulse:
 
         async def update_gateway_device_if_needed() -> None:
             if self.site.gateway.next_update < time.time():
-                await self.site._set_device(ADT_GATEWAY_STRING)
+                await self.site.set_device(ADT_GATEWAY_STRING)
 
         def should_relogin(relogin_interval: int) -> bool:
             return (

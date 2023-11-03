@@ -265,7 +265,18 @@ class ADTPulseAlarmPanel:
         """
         return await self._arm(connection, ADT_ALARM_OFF, False)
 
-    def _update_alarm_from_soup(self, summary_html_soup: BeautifulSoup) -> None:
+    def update_alarm_from_soup(self, summary_html_soup: BeautifulSoup) -> None:
+        """
+        Updates the alarm status based on the information extracted from the provided
+        HTML soup.
+
+        Args:
+            summary_html_soup (BeautifulSoup): The BeautifulSoup object representing
+            the HTML soup.
+
+        Returns:
+            None: This function does not return anything.
+        """
         LOG.debug("Updating alarm status")
         value = summary_html_soup.find("span", {"class": "p_boldNormalTextLarge"})
         sat_location = "security_button_0"

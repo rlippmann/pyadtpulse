@@ -250,7 +250,7 @@ class ADTPulseSite:
             result.update({identity_text: value})
         return result
 
-    async def _set_device(self, device_id: str) -> None:
+    async def set_device(self, device_id: str) -> None:
         """
         Sets the device attributes for the given device ID.
 
@@ -271,16 +271,18 @@ class ADTPulseSite:
         else:
             LOG.debug("Zone %s is not an integer, skipping", device_id)
 
-    async def _fetch_devices(self, soup: BeautifulSoup | None) -> bool:
+    async def fetch_devices(self, soup: BeautifulSoup | None) -> bool:
         """
-        Fetches the devices from the given BeautifulSoup object and updates the zone attributes.
+        Fetches the devices from the given BeautifulSoup object and updates
+        the zone attributes.
 
         Args:
-            soup (Optional[BeautifulSoup]): The BeautifulSoup object containing the devices.
+            soup (Optional[BeautifulSoup]): The BeautifulSoup object containing
+                the devices.
 
         Returns:
-            bool: True if the devices were fetched and zone attributes were updated successfully,
-                  False otherwise.
+            bool: True if the devices were fetched and zone attributes were updated
+                successfully, False otherwise.
         """
         if not soup:
             response = await self._pulse_connection.async_query(ADT_SYSTEM_URI)
@@ -329,7 +331,7 @@ class ADTPulseSite:
                     on_click_value_text in ("goToUrl('gateway.jsp');", "Gateway")
                     or device_name == "Gateway"
                 ):
-                    task_list.append(create_task(self._set_device(ADT_GATEWAY_STRING)))
+                    task_list.append(create_task(self.set_device(ADT_GATEWAY_STRING)))
                 else:
                     result = re.findall(regex_device, on_click_value_text)
 
@@ -340,9 +342,9 @@ class ADTPulseSite:
                             device_id == SECURITY_PANEL_ID
                             or device_name == SECURITY_PANEL_NAME
                         ):
-                            task_list.append(create_task(self._set_device(device_id)))
+                            task_list.append(create_task(self.set_device(device_id)))
                         elif zone_id and zone_id.isdecimal():
-                            task_list.append(create_task(self._set_device(device_id)))
+                            task_list.append(create_task(self.set_device(device_id)))
                         else:
                             LOG.debug(
                                 "Skipping %s as it doesn't have an ID", device_name
@@ -373,9 +375,9 @@ class ADTPulseSite:
                 )
             if soup is None:
                 return None
-            return self._update_zone_from_soup(soup)
+            return self.update_zone_from_soup(soup)
 
-    def _update_zone_from_soup(self, soup: BeautifulSoup) -> ADTPulseZones | None:
+    def update_zone_from_soup(self, soup: BeautifulSoup) -> ADTPulseZones | None:
         """
         Updates the zone information based on the provided BeautifulSoup object.
 
@@ -383,7 +385,8 @@ class ADTPulseSite:
             soup (BeautifulSoup): The BeautifulSoup object containing the parsed HTML.
 
         Returns:
-            Optional[ADTPulseZones]: The updated ADTPulseZones object, or None if no zones exist.
+            Optional[ADTPulseZones]: The updated ADTPulseZones object, or None if
+            no zones exist.
         """
         # parse ADT's convulated html to get sensor status
         with self._site_lock:
