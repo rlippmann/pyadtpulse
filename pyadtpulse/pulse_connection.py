@@ -432,6 +432,7 @@ class ADTPulseConnection:
             close_response(retval)
             return None
         with self._attribute_lock:
+            self._authenticated_flag.set()
             self._last_login_time = int(time.time())
         return retval
 
@@ -447,3 +448,4 @@ class ADTPulseConnection:
             timeout=10,
             requires_authentication=False,
         )
+        self._authenticated_flag.clear()
