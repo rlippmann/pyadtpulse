@@ -228,7 +228,7 @@ class ADTPulseConnection:
             )
             await asyncio.sleep(self.retry_after - current_time)
 
-        if requires_authentication:
+        if requires_authentication and not self.authenticated_flag.is_set():
             LOG.info("%s for %s waiting for authenticated flag to be set", method, uri)
             await self._authenticated_flag.wait()
         else:
