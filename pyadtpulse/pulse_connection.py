@@ -49,6 +49,7 @@ class ADTPulseConnection:
         "_last_login_time",
         "_retry_after",
         "_authenticated_flag",
+        "_detailed_debug_logging",
     )
 
     def __init__(
@@ -57,6 +58,7 @@ class ADTPulseConnection:
         session: ClientSession | None = None,
         user_agent: str = ADT_DEFAULT_HTTP_HEADERS["User-Agent"],
         debug_locks: bool = False,
+        detailed_debug_logging: bool = False,
     ):
         """Initialize ADT Pulse connection."""
         self._api_host = host
@@ -76,6 +78,7 @@ class ADTPulseConnection:
             self._attribute_lock = DebugRLock("ADTPulseConnection._attribute_lock")
         self._loop: asyncio.AbstractEventLoop | None = None
         self._retry_after = int(time.time())
+        self._detailed_debug_logging = detailed_debug_logging
 
     def __del__(self):
         """Destructor for ADTPulseConnection."""
@@ -138,6 +141,18 @@ class ADTPulseConnection:
         """Get the authenticated flag."""
         with self._attribute_lock:
             return self._authenticated_flag
+
+    @property
+    def detailed_debug_logging(self) -> bool:
+        """Get detailed debug logging."""
+        with self._attribute_lock:
+            return self._detailed_debug_logging
+
+    @detailed_debug_logging.setter
+    def detailed_debug_logging(self, value: bool) -> None:
+        """Set detailed debug logging."""
+        with self._attribute_lock:
+            self._detailed_debug_logging = value
 
     def check_sync(self, message: str) -> asyncio.AbstractEventLoop:
         """Checks if sync login was performed.
@@ -243,11 +258,14 @@ class ADTPulseConnection:
             headers["Accept"] = "*/*"
 
         self._session.headers.update(headers)
-
-        LOG.debug(
-            "Attempting %s %s params=%s timeout=%d", method, url, extra_params, timeout
-        )
-
+        if self.detailed_debug_logging:
+            LOG.debug(
+                "Attempting %s %s params=%s timeout=%d",
+                method,
+                url,
+                extra_params,
+                timeout,
+            )
         retry = 0
         response: ClientResponse | None = None
         while retry < MAX_RETRIES:

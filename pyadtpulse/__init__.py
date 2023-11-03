@@ -143,6 +143,7 @@ class PyADTPulse:
             session=websession,
             user_agent=user_agent,
             debug_locks=debug_locks,
+            detailed_debug_logging=detailed_debug_logging,
         )
 
         self._sync_task: asyncio.Task | None = None
@@ -305,6 +306,7 @@ class PyADTPulse:
         """Set detailed debug logging flag."""
         with self._attribute_lock:
             self._detailed_debug_logging = value
+        self._pulse_connection.detailed_debug_logging = value
 
     async def _update_sites(self, soup: BeautifulSoup) -> None:
         with self._attribute_lock:
