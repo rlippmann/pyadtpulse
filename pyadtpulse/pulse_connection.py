@@ -24,7 +24,9 @@ from pyadtpulse.const import (
     ADT_LOGIN_URI,
     ADT_LOGOUT_URI,
     ADT_ORB_URI,
+    API_HOST_CA,
     API_PREFIX,
+    DEFAULT_API_HOST,
 )
 from pyadtpulse.util import DebugRLock, close_response, handle_response, make_soup
 
@@ -52,6 +54,15 @@ class ADTPulseConnection:
         "_detailed_debug_logging",
     )
 
+    @staticmethod
+    def _check_service_host(service_host: str) -> None:
+        if service_host is None or service_host == "":
+            raise ValueError("Service host is mandatory")
+        if service_host not in (DEFAULT_API_HOST, API_HOST_CA):
+            raise ValueError(
+                "Service host must be one of {DEFAULT_API_HOST}" f" or {API_HOST_CA}"
+            )
+
     def __init__(
         self,
         host: str,
@@ -61,6 +72,7 @@ class ADTPulseConnection:
         detailed_debug_logging: bool = False,
     ):
         """Initialize ADT Pulse connection."""
+        self._check_service_host(host)
         self._api_host = host
         self._allocated_session = False
         self._authenticated_flag = asyncio.Event()
