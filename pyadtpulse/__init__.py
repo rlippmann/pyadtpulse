@@ -588,9 +588,12 @@ class PyADTPulse:
                 return
 
     def _compute_login_backoff(self) -> float:
+        if self._current_relogin_retry_count == 0:
+            return 0.0
         return min(
             ADT_MAX_RELOGIN_BACKOFF,
-            self.site.gateway.poll_interval * (2 ^ self._current_relogin_retry_count),
+            self.site.gateway.poll_interval
+            * (2 ^ (self._current_relogin_retry_count - 1)),
         )
 
     def _pulse_session_thread(self) -> None:
