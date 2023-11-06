@@ -36,3 +36,6 @@ line-length = 90
 
 [tool.pycln]
 all = true
+
+[tool.pytest.ini_options]
+timeout = 30

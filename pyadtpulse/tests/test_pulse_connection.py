@@ -28,7 +28,8 @@ class TestADTPulseConnection:
         assert connection._session.headers["User-Agent"] == user_agent
 
     # can set and get service host
-    def test_set_and_get_service_host(self):
+    @pytest.mark.asyncio
+    async def test_set_and_get_service_host(self):
         host = DEFAULT_API_HOST
         connection = ADTPulseConnection(host)
 
@@ -38,7 +39,8 @@ class TestADTPulseConnection:
         assert connection.service_host == new_host
 
     # can set and get event loop
-    def test_set_and_get_event_loop(self):
+    @pytest.mark.asyncio
+    async def test_set_and_get_event_loop(self):
         host = DEFAULT_API_HOST
         connection = ADTPulseConnection(host)
 
@@ -48,14 +50,16 @@ class TestADTPulseConnection:
         assert connection.loop == loop
 
     # can get last login time
-    def test_get_last_login_time(self):
+    @pytest.mark.asyncio
+    async def test_get_last_login_time(self):
         host = DEFAULT_API_HOST
         connection = ADTPulseConnection(host)
 
         assert connection.last_login_time == 0
 
     # can set and get retry after time
-    def test_set_and_get_retry_after_time(self):
+    @pytest.mark.asyncio
+    async def test_set_and_get_retry_after_time(self):
         connection = ADTPulseConnection(DEFAULT_API_HOST)
 
         retry_after = int(time.time()) + 60
@@ -64,14 +68,16 @@ class TestADTPulseConnection:
         assert connection.retry_after == retry_after
 
     # can get authenticated flag
-    def test_get_authenticated_flag(self):
+    @pytest.mark.asyncio
+    async def test_get_authenticated_flag(self):
         host = DEFAULT_API_HOST
         connection = ADTPulseConnection(host)
 
         assert not connection.authenticated_flag.is_set()
 
     # raises ValueError if service host is None or empty string
-    def test_raises_value_error_if_service_host_is_none_or_empty_string(self):
+    @pytest.mark.asyncio
+    async def test_raises_value_error_if_service_host_is_none_or_empty_string(self):
         with pytest.raises(ValueError):
             ADTPulseConnection(None)
 
@@ -79,7 +85,8 @@ class TestADTPulseConnection:
             ADTPulseConnection("")
 
     # raises ValueError if service host is not DEFAULT_API_HOST or API_HOST_CA
-    def test_raises_value_error_if_service_host_is_not_default_api_host_or_api_host_ca(
+    @pytest.mark.asyncio
+    async def test_raises_value_error_if_service_host_is_not_default_api_host_or_api_host_ca(
         self,
     ):
         with pytest.raises(ValueError):
@@ -89,7 +96,8 @@ class TestADTPulseConnection:
             ADTPulseConnection("api.example.com")
 
     # raises ValueError if retry_after is less than current time
-    def test_raises_value_error_if_retry_after_is_less_than_current_time(self):
+    @pytest.mark.asyncio
+    async def test_raises_value_error_if_retry_after_is_less_than_current_time(self):
         host = DEFAULT_API_HOST
         connection = ADTPulseConnection(host)
 
@@ -97,7 +105,8 @@ class TestADTPulseConnection:
             connection.retry_after = int(time.time()) - 60
 
     # can make url with given uri using a valid host
-    def test_make_url_with_given_uri_with_valid_host(self):
+    @pytest.mark.asyncio
+    async def test_make_url_with_given_uri_with_valid_host(self):
         host = DEFAULT_API_HOST
         connection = ADTPulseConnection(host)
         uri = "/api/v1/status"
@@ -108,7 +117,8 @@ class TestADTPulseConnection:
         assert url == expected_url
 
     # can set and get detailed debug logging
-    def test_set_and_get_detailed_debug_logging(self):
+    @pytest.mark.asyncio
+    async def test_set_and_get_detailed_debug_logging(self):
         connection = ADTPulseConnection(DEFAULT_API_HOST)
 
         assert connection.detailed_debug_logging == False
@@ -153,11 +163,6 @@ class TestADTPulseConnection:
         response_mock = mocker.Mock()
         response_mock.status = 200
         response_mock.real_url.path = "/myhome/1.0.0/"
-
-        # Mock the __aenter__ and __aexit__ methods of the response object
-        response_mock.__aenter__ = mocker.AsyncMock(return_value=response_mock)
-        response_mock.__aexit__ = mocker.AsyncMock()
-
         # Mock the session request method to return the mocked response
         session_mock.request.return_value = response_mock
 
@@ -304,7 +309,8 @@ class TestADTPulseConnection:
             connection.check_sync("Test message")
 
     # can set and get allocated session
-    def test_set_and_get_allocated_session(self):
+    @pytest.mark.asyncio
+    async def test_set_and_get_allocated_session(self):
         host = DEFAULT_API_HOST
         connection = ADTPulseConnection(host)
 
@@ -377,7 +383,7 @@ class TestADTPulseConnection:
         session_mock.request.return_value = response_mock
         connection._session = session_mock
 
-        username = "test_user"
+        username = "me@example.com"
         password = "test_password"
         fingerprint = "test_fingerprint"
 
@@ -405,7 +411,8 @@ class TestADTPulseConnection:
             await connection.async_fetch_version()
 
     # raises RuntimeError if async_query is called from sync context
-    def test_raises_runtime_error_if_async_query_called_from_sync_context(self):
+    @pytest.mark.asyncio
+    async def test_raises_runtime_error_if_async_query_called_from_sync_context(self):
         connection = ADTPulseConnection(DEFAULT_API_HOST)
 
         with pytest.raises(RuntimeError):
