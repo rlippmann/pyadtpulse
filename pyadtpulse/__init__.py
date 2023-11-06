@@ -201,7 +201,7 @@ class PyADTPulse:
         Args:
             host (str): name of Pulse endpoint host
         """
-        self._check_service_host(host)
+        self._pulse_connection.check_service_host(host)
         with self._attribute_lock:
             self._pulse_connection.service_host = host
 
@@ -521,7 +521,7 @@ class PyADTPulse:
             pattern = r"\d+[-]\d+[-]\d+"
             if not re.match(pattern, text):
                 LOG.warning(
-                    "Unexpected sync check format (%s), " "forcing re-auth",
+                    "Unexpected sync check format (%s), forcing re-auth",
                     text,
                 )
                 LOG.debug("Received %s from ADT Pulse site", text)

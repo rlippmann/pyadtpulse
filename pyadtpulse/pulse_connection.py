@@ -55,12 +55,13 @@ class ADTPulseConnection:
     )
 
     @staticmethod
-    def _check_service_host(service_host: str) -> None:
+    def check_service_host(service_host: str) -> None:
+        """Check if service host is valid."""
         if service_host is None or service_host == "":
             raise ValueError("Service host is mandatory")
         if service_host not in (DEFAULT_API_HOST, API_HOST_CA):
             raise ValueError(
-                "Service host must be one of {DEFAULT_API_HOST}" f" or {API_HOST_CA}"
+                f"Service host must be one of {DEFAULT_API_HOST}" f" or {API_HOST_CA}"
             )
 
     def __init__(
@@ -72,7 +73,7 @@ class ADTPulseConnection:
         detailed_debug_logging: bool = False,
     ):
         """Initialize ADT Pulse connection."""
-        self._check_service_host(host)
+        self.check_service_host(host)
         self._api_host = host
         self._allocated_session = False
         self._authenticated_flag = asyncio.Event()
