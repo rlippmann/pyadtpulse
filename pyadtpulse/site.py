@@ -298,20 +298,17 @@ class ADTPulseSite:
         task_list: list[Task] = []
 
         with self._site_lock:
-            device_mapping = {
-                ("goToUrl('gateway.jsp');", "Gateway"): ADT_GATEWAY_STRING,
-                (SECURITY_PANEL_ID, SECURITY_PANEL_NAME): SECURITY_PANEL_ID,
-            }
-            rows = soup.find_all("tr", {"class": "p_listRow", "onclick": True})
-            for row in rows:
+            for row in soup.find_all("tr", {"class": "p_listRow", "onclick": True}):
                 device_name = row.find("a").get_text()
                 row_tds = row.find_all("td")
                 zone_id = None
+                # Check if we can create a zone without calling device.jsp
                 if row_tds and len(row_tds) > 4:
                     zone_name = row_tds[1].get_text().strip()
                     zone_id = row_tds[2].get_text().strip()
                     zone_type = row_tds[4].get_text().strip()
                     zone_status = row_tds[0].find("canvas").get("title").strip()
+
                     if (
                         zone_id is not None
                         and zone_id.isdecimal()
@@ -327,24 +324,22 @@ class ADTPulseSite:
                             }
                         )
                         continue
+
                 on_click_value_text = row.get("onclick")
-                device_id = device_mapping.get((on_click_value_text, device_name))
-                if device_id:
-                    if device_id == ADT_GATEWAY_STRING:
-                        task_list.append(create_task(self.set_device(device_id)))
-                    elif device_id == SECURITY_PANEL_ID:
-                        task_list.append(create_task(self.set_device(device_id)))
-                    elif zone_id and zone_id.isdecimal():
-                        task_list.append(create_task(self.set_device(device_id)))
-                    else:
-                        LOG.debug("Skipping %s as it doesn't have an ID", device_name)
+
+                if (
+                    on_click_value_text in ("goToUrl('gateway.jsp');", "Gateway")
+                    or device_name == "Gateway"
+                ):
+                    task_list.append(create_task(self.set_device(ADT_GATEWAY_STRING)))
                 else:
-                    result = str(re.findall(regex_device, on_click_value_text))
+                    result = re.findall(regex_device, on_click_value_text)
+
                     if result:
                         device_id = result[0]
+
                         if (
-                            device_id is not None
-                            and device_id == SECURITY_PANEL_ID
+                            device_id == SECURITY_PANEL_ID
                             or device_name == SECURITY_PANEL_NAME
                         ):
                             task_list.append(create_task(self.set_device(device_id)))
