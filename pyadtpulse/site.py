@@ -9,7 +9,7 @@ from typing import Union
 from warnings import warn
 
 # import dateparser
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, ResultSet
 
 from .alarm_panel import ADTPulseAlarmPanel
 from .const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_SYSTEM_URI
@@ -284,6 +284,54 @@ class ADTPulseSite:
             bool: True if the devices were fetched and zone attributes were updated
                 successfully, False otherwise.
         """
+        regex_device = r"goToUrl\('device.jsp\?id=(\d*)'\);"
+        task_list: list[Task] = []
+        zone_id: str | None = None
+
+        def add_zone_from_row(row_tds: ResultSet) -> str | None:
+            """Adds a zone from a bs4 row.
+
+            Returns None if successful, otherwise the zone ID if present.
+            """
+            zone_id: str | None = None
+            if row_tds and len(row_tds) > 4:
+                zone_name: str = row_tds[1].get_text().strip()
+                zone_id = row_tds[2].get_text().strip()
+                zone_type: str = row_tds[4].get_text().strip()
+                zone_status: str = row_tds[0].find("canvas").get("title").strip()
+                if (
+                    zone_id is not None
+                    and zone_id.isdecimal()
+                    and zone_name
+                    and zone_type
+                ):
+                    self._zones.update_zone_attributes(
+                        {
+                            "name": zone_name,
+                            "zone": zone_id,
+                            "type_model": zone_type,
+                            "status": zone_status,
+                        }
+                    )
+                    return None
+            return zone_id
+
+        def check_panel_or_gateway(
+            regex_device: str,
+            device_name: str,
+            zone_id: str | None,
+            on_click_value_text: str,
+        ) -> Task | None:
+            result = re.findall(regex_device, on_click_value_text)
+            if result:
+                device_id = result[0]
+                if device_id == SECURITY_PANEL_ID or device_name == SECURITY_PANEL_NAME:
+                    return create_task(self.set_device(device_id))
+                if zone_id and zone_id.isdecimal():
+                    return create_task(self.set_device(device_id))
+            LOG.debug("Skipping %s as it doesn't have an ID", device_name)
+            return None
+
         if not soup:
             response = await self._pulse_connection.async_query(ADT_SYSTEM_URI)
             soup = await make_soup(
@@ -293,66 +341,32 @@ class ADTPulseSite:
             )
             if not soup:
                 return False
-
-        regex_device = r"goToUrl\('device.jsp\?id=(\d*)'\);"
-        task_list: list[Task] = []
-
         with self._site_lock:
             for row in soup.find_all("tr", {"class": "p_listRow", "onclick": True}):
                 device_name = row.find("a").get_text()
                 row_tds = row.find_all("td")
-                zone_id = None
-                # Check if we can create a zone without calling device.jsp
-                if row_tds and len(row_tds) > 4:
-                    zone_name = row_tds[1].get_text().strip()
-                    zone_id = row_tds[2].get_text().strip()
-                    zone_type = row_tds[4].get_text().strip()
-                    zone_status = row_tds[0].find("canvas").get("title").strip()
-
-                    if (
-                        zone_id is not None
-                        and zone_id.isdecimal()
-                        and zone_name
-                        and zone_type
-                    ):
-                        self._zones.update_zone_attributes(
-                            {
-                                "name": zone_name,
-                                "zone": zone_id,
-                                "type_model": zone_type,
-                                "status": zone_status,
-                            }
-                        )
-                        continue
-
+                zone_id = add_zone_from_row(row_tds)
+                if zone_id is None:
+                    continue
                 on_click_value_text = row.get("onclick")
-
                 if (
                     on_click_value_text in ("goToUrl('gateway.jsp');", "Gateway")
                     or device_name == "Gateway"
                 ):
                     task_list.append(create_task(self.set_device(ADT_GATEWAY_STRING)))
-                else:
-                    result = re.findall(regex_device, on_click_value_text)
+                elif (
+                    result := check_panel_or_gateway(
+                        regex_device,
+                        device_name,
+                        zone_id,
+                        on_click_value_text,
+                    )
+                ) is not None:
+                    task_list.append(result)
 
-                    if result:
-                        device_id = result[0]
-
-                        if (
-                            device_id == SECURITY_PANEL_ID
-                            or device_name == SECURITY_PANEL_NAME
-                        ):
-                            task_list.append(create_task(self.set_device(device_id)))
-                        elif zone_id and zone_id.isdecimal():
-                            task_list.append(create_task(self.set_device(device_id)))
-                        else:
-                            LOG.debug(
-                                "Skipping %s as it doesn't have an ID", device_name
-                            )
-
-            await gather(*task_list)
-            self._last_updated = int(time())
-            return True
+        await gather(*task_list)
+        self._last_updated = int(time())
+        return True
 
     async def _async_update_zones_as_dict(
         self, soup: BeautifulSoup | None
