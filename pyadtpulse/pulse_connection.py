@@ -64,6 +64,22 @@ class ADTPulseConnection:
                 f"Service host must be one of {DEFAULT_API_HOST}" f" or {API_HOST_CA}"
             )
 
+    @staticmethod
+    def check_login_parameters(username: str, password: str, fingerprint: str) -> None:
+        """Check if login parameters are valid.
+
+        Raises ValueError if a login parameter is not valid.
+        """
+        if username is None or username == "":
+            raise ValueError("Username is mandatory")
+        pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
+        if not re.match(pattern, username):
+            raise ValueError("Username must be an email address")
+        if password is None or password == "":
+            raise ValueError("Password is mandatory")
+        if fingerprint is None or fingerprint == "":
+            raise ValueError("Fingerprint is required")
+
     def __init__(
         self,
         host: str,
@@ -439,7 +455,10 @@ class ADTPulseConnection:
         Returns:
             ClientResponse | None: The response from the query or None if the login
             was unsuccessful.
+        Raises:
+            ValueError: if login parameters are not correct
         """
+        self.check_login_parameters(username, password, fingerprint)
         try:
             retval = await self.async_query(
                 ADT_LOGIN_URI,

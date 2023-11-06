@@ -162,20 +162,14 @@ class PyADTPulse:
             self.login()
 
     def _init_login_info(self, username: str, password: str, fingerprint: str) -> None:
-        if username is None or username == "":
-            raise ValueError("Username is mandatory")
+        """Initialize login info.
 
-        pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
-        if not re.match(pattern, username):
-            raise ValueError("Username must be an email address")
+        Raises:
+            ValueError: if login parameters are not valid.
+        """
+        ADTPulseConnection.check_login_parameters(username, password, fingerprint)
         self._username = username
-
-        if password is None or password == "":
-            raise ValueError("Password is mandatory")
         self._password = password
-
-        if fingerprint is None or fingerprint == "":
-            raise ValueError("Fingerprint is required")
         self._fingerprint = fingerprint
 
     def __repr__(self) -> str:
@@ -201,7 +195,7 @@ class PyADTPulse:
         Args:
             host (str): name of Pulse endpoint host
         """
-        self._pulse_connection.check_service_host(host)
+        ADTPulseConnection.check_service_host(host)
         with self._attribute_lock:
             self._pulse_connection.service_host = host
 
