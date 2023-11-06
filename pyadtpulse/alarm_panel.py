@@ -9,9 +9,9 @@ from time import time
 
 from bs4 import BeautifulSoup
 
-from pyadtpulse.const import ADT_ARM_DISARM_URI
-from pyadtpulse.pulse_connection import ADTPulseConnection
-from pyadtpulse.util import make_soup
+from .const import ADT_ARM_DISARM_URI
+from .pulse_connection import ADTPulseConnection
+from .util import make_soup
 
 LOG = logging.getLogger(__name__)
 ADT_ALARM_AWAY = "away"

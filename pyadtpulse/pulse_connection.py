@@ -17,7 +17,7 @@ from aiohttp import (
 )
 from bs4 import BeautifulSoup
 
-from pyadtpulse.const import (
+from .const import (
     ADT_DEFAULT_HTTP_HEADERS,
     ADT_DEFAULT_VERSION,
     ADT_HTTP_REFERER_URIS,
@@ -28,7 +28,7 @@ from pyadtpulse.const import (
     API_PREFIX,
     DEFAULT_API_HOST,
 )
-from pyadtpulse.util import DebugRLock, close_response, handle_response, make_soup
+from .util import DebugRLock, close_response, handle_response, make_soup
 
 RECOVERABLE_ERRORS = [500, 502, 504]
 LOG = logging.getLogger(__name__)

@@ -14,8 +14,8 @@ import uvloop
 from aiohttp import ClientResponse, ClientSession
 from bs4 import BeautifulSoup
 
-from pyadtpulse.alarm_panel import ADT_ALARM_UNKNOWN
-from pyadtpulse.const import (
+from .alarm_panel import ADT_ALARM_UNKNOWN
+from .const import (
     ADT_DEFAULT_HTTP_HEADERS,
     ADT_DEFAULT_KEEPALIVE_INTERVAL,
     ADT_DEFAULT_RELOGIN_INTERVAL,
@@ -28,9 +28,9 @@ from pyadtpulse.const import (
     ADT_TIMEOUT_URI,
     DEFAULT_API_HOST,
 )
-from pyadtpulse.pulse_connection import ADTPulseConnection
-from pyadtpulse.site import ADTPulseSite
-from pyadtpulse.util import (
+from .pulse_connection import ADTPulseConnection
+from .site import ADTPulseSite
+from .util import (
     AuthenticationException,
     DebugRLock,
     close_response,
