@@ -570,6 +570,8 @@ class PyADTPulse:
                 ):
                     close_response(response)
                     continue
+                if response is None:  # shut up type checker
+                    continue
                 text = await response.text()
                 if not await validate_sync_check_response():
                     continue
