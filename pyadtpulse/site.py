@@ -224,8 +224,10 @@ class ADTPulseSite:
             device_response = await self._pulse_connection.async_query(
                 ADT_DEVICE_URI, extra_params={"id": device_id}
             )
-        device_response_soup = await make_soup(
-            device_response,
+        device_response_soup = make_soup(
+            device_response[0],
+            device_response[1],
+            device_response[2],
             logging.DEBUG,
             "Failed loading device attributes from ADT Pulse service",
         )
@@ -334,8 +336,10 @@ class ADTPulseSite:
 
         if not soup:
             response = await self._pulse_connection.async_query(ADT_SYSTEM_URI)
-            soup = await make_soup(
-                response,
+            soup = make_soup(
+                response[0],
+                response[1],
+                response[2],
                 logging.WARNING,
                 "Failed loading zone status from ADT Pulse service",
             )

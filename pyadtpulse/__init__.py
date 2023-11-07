@@ -11,8 +11,9 @@ from typing import Union
 from warnings import warn
 
 import uvloop
-from aiohttp import ClientResponse, ClientSession
+from aiohttp import ClientSession
 from bs4 import BeautifulSoup
+from yarl import URL
 
 from .alarm_panel import ADT_ALARM_UNKNOWN
 from .const import (
@@ -30,13 +31,7 @@ from .const import (
 )
 from .pulse_connection import ADTPulseConnection
 from .site import ADTPulseSite
-from .util import (
-    AuthenticationException,
-    DebugRLock,
-    close_response,
-    handle_response,
-    make_soup,
-)
+from .util import AuthenticationException, DebugRLock, handle_response, make_soup
 
 LOG = logging.getLogger(__name__)
 
@@ -375,7 +370,7 @@ class PyADTPulse:
         with the ADT Pulse cloud.
         """
 
-        async def reset_pulse_cloud_timeout() -> ClientResponse | None:
+        async def reset_pulse_cloud_timeout() -> tuple[int, str | None, URL | None]:
             return await self._pulse_connection.async_query(ADT_TIMEOUT_URI, "POST")
 
         async def update_gateway_device_if_needed() -> None:
@@ -389,7 +384,7 @@ class PyADTPulse:
                 > randint(int(0.75 * relogin_interval), relogin_interval)
             )
 
-        response: ClientResponse | None = None
+        response: str | None
         task_name: str = self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
         LOG.debug("creating %s", task_name)
 
@@ -410,21 +405,21 @@ class PyADTPulse:
                     await self._do_login_with_backoff(task_name)
                     continue
                 LOG.debug("Resetting timeout")
-                response = await reset_pulse_cloud_timeout()
+                code, response, url = await reset_pulse_cloud_timeout()
                 if (
                     not handle_response(
-                        response,
+                        code,
+                        url,
                         logging.WARNING,
                         "Could not reset ADT Pulse cloud timeout",
                     )
                     or response is None
-                ):  # shut up linter
+                ):
                     continue
                 await update_gateway_device_if_needed()
 
             except asyncio.CancelledError:
                 LOG.debug("%s cancelled", task_name)
-                close_response(response)
                 return
 
     async def _cancel_task(self, task: asyncio.Task | None) -> None:
@@ -497,9 +492,11 @@ class PyADTPulse:
         task_name = self._get_sync_task_name()
         LOG.debug("creating %s", task_name)
 
-        response = None
+        response_text: str | None = None
+        code: int = 200
         last_sync_text = "0-0-0"
         last_sync_check_was_different = False
+        url: URL | None = None
 
         async def validate_sync_check_response() -> bool:
             """
@@ -507,18 +504,20 @@ class PyADTPulse:
             Returns:
                 bool: True if the sync check response is valid, False otherwise.
             """
-            if not handle_response(response, logging.ERROR, "Error querying ADT sync"):
+            if not handle_response(code, url, logging.ERROR, "Error querying ADT sync"):
                 self._set_update_status(False)
-                close_response(response)
                 return False
-            close_response(response)
+            # this should have already been handled
+            if response_text is None:
+                LOG.warning("Internal Error: response_text is None")
+                return False
             pattern = r"\d+[-]\d+[-]\d+"
-            if not re.match(pattern, text):
+            if not re.match(pattern, response_text):
                 LOG.warning(
                     "Unexpected sync check format (%s), forcing re-auth",
-                    text,
+                    response_text,
                 )
-                LOG.debug("Received %s from ADT Pulse site", text)
+                LOG.debug("Received %s from ADT Pulse site", response_text)
                 await self.async_logout()
                 await self._do_login_with_backoff(task_name)
                 return False
@@ -534,13 +533,14 @@ class PyADTPulse:
             else:
                 if self.detailed_debug_logging:
                     LOG.debug(
-                        "Sync token %s indicates no remote updates to process", text
+                        "Sync token %s indicates no remote updates to process",
+                        response_text,
                     )
             return False
 
         def handle_updates_exist() -> bool:
-            if text != last_sync_text:
-                LOG.debug("Updates exist: %s, requerying", text)
+            if response_text != last_sync_text:
+                LOG.debug("Updates exist: %s, requerying", response_text)
                 return True
             return False
 
@@ -564,27 +564,25 @@ class PyADTPulse:
                     continue
                 await asyncio.sleep(pi)
 
-                response = await perform_sync_check_query()
+                code, response_text, url = await perform_sync_check_query()
                 if not handle_response(
-                    response, logging.WARNING, "Error querying ADT sync"
+                    code, url, logging.WARNING, "Error querying ADT sync"
                 ):
-                    close_response(response)
                     continue
-                if response is None:  # shut up type checker
+                if response_text is None:
+                    LOG.warning("Sync check received no response from ADT Pulse site")
                     continue
-                text = await response.text()
                 if not await validate_sync_check_response():
                     continue
                 if handle_updates_exist():
                     last_sync_check_was_different = True
-                    last_sync_text = text
+                    last_sync_text = response_text
                     continue
                 if await handle_no_updates_exist():
                     last_sync_check_was_different = False
                     continue
             except asyncio.CancelledError:
                 LOG.debug("%s cancelled", task_name)
-                close_response(response)
                 return
 
     def _pulse_session_thread(self) -> None:
@@ -702,18 +700,23 @@ class PyADTPulse:
         response = await self._pulse_connection.async_do_login_query(
             self.username, self._password, self._fingerprint
         )
-        if response is None:
+        if not handle_response(
+            response[0], response[2], logging.ERROR, "Error authenticating to ADT Pulse"
+        ):
             return False
-        if self._pulse_connection.make_url(ADT_SUMMARY_URI) != str(response.url):
+        if self._pulse_connection.make_url(ADT_SUMMARY_URI) != str(response[2]):
             # more specifically:
             # redirect to signin.jsp = username/password error
             # redirect to mfaSignin.jsp = fingerprint error
             LOG.error("Authentication error encountered logging into ADT Pulse")
-            close_response(response)
             return False
 
-        soup = await make_soup(
-            response, logging.ERROR, "Could not log into ADT Pulse site"
+        soup = make_soup(
+            response[0],
+            response[1],
+            response[2],
+            logging.ERROR,
+            "Could not log into ADT Pulse site",
         )
         if soup is None:
             return False

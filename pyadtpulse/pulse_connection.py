@@ -16,6 +16,7 @@ from aiohttp import (
     ClientSession,
 )
 from bs4 import BeautifulSoup
+from yarl import URL
 
 from .const import (
     ADT_DEFAULT_HTTP_HEADERS,
@@ -28,7 +29,7 @@ from .const import (
     API_PREFIX,
     DEFAULT_API_HOST,
 )
-from .util import DebugRLock, close_response, handle_response, make_soup
+from .util import DebugRLock, handle_response, make_soup
 
 RECOVERABLE_ERRORS = [500, 502, 504]
 LOG = logging.getLogger(__name__)
@@ -239,7 +240,7 @@ class ADTPulseConnection:
         extra_headers: dict[str, str] | None = None,
         timeout: int = 1,
         requires_authentication: bool = True,
-    ) -> ClientResponse | None:
+    ) -> tuple[int, str | None, URL | None]:
         """
         Query ADT Pulse async.
 
@@ -258,10 +259,12 @@ class ADTPulseConnection:
                                                     set, will wait for flag to be set.
 
         Returns:
-            Optional[ClientResponse]: aiohttp.ClientResponse object
-                                    None on failure
-                                    ClientResponse will already be closed.
+            tuple with integer return code, optional response text, and optional URL of
+            response
         """
+        response_text: str | None = None
+        return_code: int = 200
+        response_url: URL | None = None
         current_time = time.time()
         if self.retry_after > current_time:
             LOG.debug(
@@ -308,7 +311,9 @@ class ADTPulseConnection:
                     timeout=timeout,
                 ) as response:
                     retry += 1
-                    await response.text()
+                    response_text = await response.text()
+                    return_code = response.status
+                    response_url = response.url
 
                     if response.status in RECOVERABLE_ERRORS:
                         LOG.info(
@@ -335,7 +340,6 @@ class ADTPulseConnection:
             ) as ex:
                 if response and response.status in (429, 503):
                     self._set_retry_after(response)
-                    close_response(response)
                     response = None
                     break
                 LOG.debug(
@@ -346,7 +350,7 @@ class ADTPulseConnection:
                     exc_info=True,
                 )
 
-        return response
+        return (return_code, response_text, response_url)
 
     def query(
         self,
@@ -356,7 +360,7 @@ class ADTPulseConnection:
         extra_headers: dict[str, str] | None = None,
         timeout=1,
         requires_authentication: bool = True,
-    ) -> ClientResponse | None:
+    ) -> tuple[int, str | None, URL | None]:
         """Query ADT Pulse async.
 
         Args:
@@ -371,9 +375,8 @@ class ADTPulseConnection:
                                                     If true and authenticated flag not
                                                     set, will wait for flag to be set.
         Returns:
-            Optional[ClientResponse]: aiohttp.ClientResponse object
-                                      None on failure
-                                      ClientResponse will already be closed.
+            tuple with integer return code, optional response text, and optional URL of
+            response
         """
         coro = self.async_query(
             uri, method, extra_params, extra_headers, timeout, requires_authentication
@@ -392,9 +395,9 @@ class ADTPulseConnection:
         Returns:
             Optional[BeautifulSoup]: A Beautiful Soup object, or None if failure
         """
-        response = await self.async_query(ADT_ORB_URI)
+        code, response, url = await self.async_query(ADT_ORB_URI)
 
-        return await make_soup(response, level, error_message)
+        return make_soup(code, response, url, level, error_message)
 
     def make_url(self, uri: str) -> str:
         """Create a URL to service host from a URI.
@@ -444,7 +447,7 @@ class ADTPulseConnection:
 
     async def async_do_login_query(
         self, username: str, password: str, fingerprint: str, timeout: int = 30
-    ) -> ClientResponse | None:
+    ) -> tuple[int, str | None, URL | None]:
         """
         Performs a login query to the Pulse site.
 
@@ -453,14 +456,17 @@ class ADTPulseConnection:
             Defaults to 30.
 
         Returns:
-            ClientResponse | None: The response from the query or None if the login
-            was unsuccessful.
+            type of status code (int), response_text Optional[str], and
+            response url (optional)
         Raises:
             ValueError: if login parameters are not correct
         """
+        status = 200
+        response_text = None
+        url = None
         self.check_login_parameters(username, password, fingerprint)
         try:
-            retval = await self.async_query(
+            status, response_text, url = await self.async_query(
                 ADT_LOGIN_URI,
                 method="POST",
                 extra_params={
@@ -476,21 +482,21 @@ class ADTPulseConnection:
             )
         except Exception as e:  # pylint: disable=broad-except
             LOG.error("Could not log into Pulse site: %s", e)
-            return None
-        if retval is None:
+            return (status, response_text, url)
+        if not status:
             LOG.error("Could not log into Pulse site.")
-            return None
+            return (status, response_text, url)
         if not handle_response(
-            retval,
+            status,
+            url,
             logging.ERROR,
             "Error encountered communicating with Pulse site on login",
         ):
-            close_response(retval)
-            return None
+            return (status, response_text, url)
         with self._attribute_lock:
             self._authenticated_flag.set()
             self._last_login_time = int(time.time())
-        return retval
+        return (status, response_text, url)
 
     async def async_do_logout_query(self, site_id: str | None) -> None:
         """Performs a logout query to the ADT Pulse site."""

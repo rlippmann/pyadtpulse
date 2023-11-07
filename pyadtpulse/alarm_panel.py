@@ -161,8 +161,10 @@ class ADTPulseAlarmPanel:
                 timeout=10,
             )
 
-            soup = await make_soup(
-                response,
+            soup = make_soup(
+                response[0],
+                response[1],
+                response[2],
                 logging.WARNING,
                 f"Failed updating ADT Pulse alarm {self._sat} to {mode}",
             )
