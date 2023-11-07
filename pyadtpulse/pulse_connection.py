@@ -19,12 +19,14 @@ from bs4 import BeautifulSoup
 from yarl import URL
 
 from .const import (
-    ADT_DEFAULT_HTTP_HEADERS,
+    ADT_DEFAULT_HTTP_ACCEPT_HEADERS,
+    ADT_DEFAULT_HTTP_USER_AGENT,
     ADT_DEFAULT_VERSION,
-    ADT_HTTP_REFERER_URIS,
+    ADT_HTTP_BACKGROUND_URIS,
     ADT_LOGIN_URI,
     ADT_LOGOUT_URI,
     ADT_ORB_URI,
+    ADT_OTHER_HTTP_ACCEPT_HEADERS,
     API_HOST_CA,
     API_PREFIX,
     DEFAULT_API_HOST,
@@ -85,7 +87,7 @@ class ADTPulseConnection:
         self,
         host: str,
         session: ClientSession | None = None,
-        user_agent: str = ADT_DEFAULT_HTTP_HEADERS["User-Agent"],
+        user_agent: str = ADT_DEFAULT_HTTP_USER_AGENT["User-Agent"],
         debug_locks: bool = False,
         detailed_debug_logging: bool = False,
     ):
@@ -100,6 +102,7 @@ class ADTPulseConnection:
         else:
             self._session = session
         self._session.headers.update({"User-Agent": user_agent})
+        self._session.headers.update(ADT_DEFAULT_HTTP_ACCEPT_HEADERS)
         self._attribute_lock: RLock | DebugRLock
         self._last_login_time: int = 0
         if not debug_locks:
@@ -284,12 +287,9 @@ class ADTPulseConnection:
                     await self.async_fetch_version()
 
         url = self.make_url(uri)
-
-        headers = {"Accept": ADT_DEFAULT_HTTP_HEADERS["Accept"]}
-        if uri not in ADT_HTTP_REFERER_URIS:
-            headers["Accept"] = "*/*"
-
-        self._session.headers.update(headers)
+        headers = extra_headers if extra_headers is not None else {}
+        if uri in ADT_HTTP_BACKGROUND_URIS:
+            headers.setdefault("Accept", ADT_OTHER_HTTP_ACCEPT_HEADERS["Accept"])
         if self.detailed_debug_logging:
             LOG.debug(
                 "Attempting %s %s params=%s timeout=%d",

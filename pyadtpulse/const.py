@@ -28,15 +28,21 @@ ADT_GATEWAY_STRING = "gateway"
 ADT_DEFAULT_POLL_INTERVAL = 2.0
 ADT_GATEWAY_OFFLINE_POLL_INTERVAL = 90.0
 ADT_MAX_RELOGIN_BACKOFF: float = 15.0 * 60.0
-ADT_DEFAULT_HTTP_HEADERS = {
+ADT_DEFAULT_HTTP_USER_AGENT = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/100.0.4896.127 Safari/537.36 Edg/100.0.1185.44"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    )
 }
 
+ADT_DEFAULT_HTTP_ACCEPT_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
+    "image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+}
+ADT_OTHER_HTTP_ACCEPT_HEADERS = {
+    "Accept": "*/*",
+}
 ADT_ARM_URI = "/quickcontrol/serv/RunRRACommand"
 ADT_ARM_DISARM_URI = "/quickcontrol/armDisarm.jsp"
 
@@ -44,7 +50,7 @@ ADT_SYSTEM_SETTINGS = "/system/settings.jsp"
 
 ADT_DEFAULT_VERSION = "24.0.0-117"
 
-ADT_HTTP_REFERER_URIS = (ADT_LOGIN_URI, ADT_DEVICE_URI, ADT_SUMMARY_URI, ADT_SYSTEM_URI)
+ADT_HTTP_BACKGROUND_URIS = (ADT_ORB_URI, ADT_SYNC_CHECK_URI)
 STATE_OK = "OK"
 STATE_OPEN = "Open"
 STATE_MOTION = "Motion"
