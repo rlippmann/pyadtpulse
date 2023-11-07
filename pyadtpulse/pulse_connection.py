@@ -241,6 +241,7 @@ class ADTPulseConnection:
         method: str = "GET",
         extra_params: dict[str, str] | None = None,
         extra_headers: dict[str, str] | None = None,
+        data: dict[str, str] | None = None,
         timeout: int = 1,
         requires_authentication: bool = True,
     ) -> tuple[int, str | None, URL | None]:
@@ -254,6 +255,7 @@ class ADTPulseConnection:
                                                     Defaults to None.
             extra_headers (Optional[Dict], optional): extra HTTP headers.
                                                     Defaults to None.
+            data (Optional[Dict], optional): data to send. Defaults to None.
             timeout (int, optional): timeout in seconds. Defaults to 1.
             requires_authentication (bool, optional): True if authentication is
                                                     required to perform query.
@@ -292,10 +294,11 @@ class ADTPulseConnection:
             headers.setdefault("Accept", ADT_OTHER_HTTP_ACCEPT_HEADERS["Accept"])
         if self.detailed_debug_logging:
             LOG.debug(
-                "Attempting %s %s params=%s timeout=%d",
+                "Attempting %s %s params=%s data=%s timeout=%d",
                 method,
                 url,
                 extra_params,
+                data,
                 timeout,
             )
         retry = 0
@@ -307,7 +310,7 @@ class ADTPulseConnection:
                     url,
                     headers=extra_headers,
                     params=extra_params,
-                    data=extra_params if method == "POST" else None,
+                    data=data if method == "POST" else None,
                     timeout=timeout,
                 ) as response:
                     retry += 1
@@ -358,6 +361,7 @@ class ADTPulseConnection:
         method: str = "GET",
         extra_params: dict[str, str] | None = None,
         extra_headers: dict[str, str] | None = None,
+        data: dict[str, str] | None = None,
         timeout=1,
         requires_authentication: bool = True,
     ) -> tuple[int, str | None, URL | None]:
@@ -369,6 +373,7 @@ class ADTPulseConnection:
             extra_params (Optional[Dict], optional): query parameters. Defaults to None.
             extra_headers (Optional[Dict], optional): extra HTTP headers.
                                                     Defaults to None.
+            data (Optional[Dict], optional): data to send. Defaults to None.
             timeout (int, optional): timeout in seconds. Defaults to 1.
             requires_authentication (bool, optional): True if authentication is required
                                                     to perform query. Defaults to True.
@@ -379,7 +384,13 @@ class ADTPulseConnection:
             response
         """
         coro = self.async_query(
-            uri, method, extra_params, extra_headers, timeout, requires_authentication
+            uri,
+            method,
+            extra_params,
+            extra_headers,
+            data=data,
+            timeout=timeout,
+            requires_authentication=requires_authentication,
         )
         return asyncio.run_coroutine_threadsafe(
             coro, self.check_sync("Attempting to run sync query from async login")
