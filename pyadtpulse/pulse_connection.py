@@ -476,6 +476,8 @@ class ADTPulseConnection:
         Returns:
             soup: Optional[BeautifulSoup]: A BeautifulSoup object containing
             summary.jsp, or None if failure
+            soup: Optional[BeautifulSoup]: A BeautifulSoup object containing
+            summary.jsp, or None if failure
         Raises:
             ValueError: if login parameters are not correct
         """
