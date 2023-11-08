@@ -426,7 +426,7 @@ class ADTPulseConnection:
 
     async def async_fetch_version(self) -> None:
         """Fetch ADT Pulse version."""
-        response: ClientResponse | None = None
+        response_path: str | None = None
         with ADTPulseConnection._class_threadlock:
             if ADTPulseConnection._api_version != ADT_DEFAULT_VERSION:
                 return
@@ -436,14 +436,15 @@ class ADTPulseConnection:
                 async with self._session.get(signin_url) as response:
                     # we only need the headers here, don't parse response
                     response.raise_for_status()
+                    response_path = response.url.path
             except (ClientResponseError, ClientConnectionError):
                 LOG.warning(
                     "Error occurred during API version fetch, defaulting to %s",
                     ADT_DEFAULT_VERSION,
                 )
                 return
-            if response is not None:
-                m = re.search("/myhome/(.+)/[a-z]*/", response.real_url.path)
+            if response_path is not None:
+                m = re.search("/myhome/(.+)/[a-z]*/", response_path)
                 if m is not None:
                     ADTPulseConnection._api_version = m.group(1)
                     LOG.debug(
