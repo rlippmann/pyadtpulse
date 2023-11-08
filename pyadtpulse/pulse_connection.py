@@ -317,7 +317,7 @@ class ADTPulseConnection:
                     url,
                     headers=extra_headers,
                     params=extra_params,
-                    data=data if method == "POST" else None,
+                    data=data,
                     timeout=timeout,
                 ) as response:
                     retry += 1
@@ -543,10 +543,13 @@ class ADTPulseConnection:
             "passwordForm": password,
             "fingerprint": fingerprint,
         }
-        extra_params = {"e": "ns", "partner": "adt"}
+        extra_params = {"partner": "adt"}
         if self._site_id != "":
             data["networkid"] = self._site_id
             extra_params["networkid"] = self._site_id
+        else:
+            extra_params["sun"] = "yes"
+            extra_params["e"] = "ns"
 
         self.check_login_parameters(username, password, fingerprint)
         try:
