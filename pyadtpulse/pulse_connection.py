@@ -7,7 +7,6 @@ import re
 import time
 from random import uniform
 from threading import Lock, RLock
-from urllib.parse import quote
 
 from aiohttp import (
     ClientConnectionError,
@@ -537,21 +536,23 @@ class ADTPulseConnection:
                 return None
             return soup
 
+        data = {
+            "usernameForm": username,
+            "passwordForm": password,
+            "fingerprint": fingerprint,
+        }
+        extra_params = {"e": "ns", "partner": "adt"}
+        if self._site_id != "":
+            data["networkid"] = self._site_id
+            extra_params["networkid"] = self._site_id
+
         self.check_login_parameters(username, password, fingerprint)
         try:
             response = await self.async_query(
                 ADT_LOGIN_URI,
                 method="POST",
-                extra_params={
-                    "e": "ns",
-                    "partner": "adt",
-                },
-                data={
-                    "usernameForm": quote(username),
-                    "passwordForm": quote(password),
-                    "networkid": self._site_id,
-                    "fingerprint": quote(fingerprint),
-                },
+                extra_params=extra_params,
+                data=data,
                 timeout=timeout,
                 requires_authentication=False,
             )
