@@ -485,7 +485,9 @@ class PyADTPulse:
 
         async def perform_sync_check_query():
             return await self._pulse_connection.async_query(
-                ADT_SYNC_CHECK_URI, extra_params={"ts": str(int(time.time() * 1000))}
+                ADT_SYNC_CHECK_URI,
+                extra_headers={"Sec-Fetch-Mode": "iframe"},
+                extra_params={"ts": str(int(time.time() * 1000))},
             )
 
         task_name = self._get_sync_task_name()

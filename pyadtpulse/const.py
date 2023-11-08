@@ -40,6 +40,12 @@ ADT_DEFAULT_HTTP_ACCEPT_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
     "image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
 }
+ADT_DEFAULT_SEC_FETCH_HEADERS = {
+    "Sec-Fetch-User": "?1",
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "navigate",
+}
 ADT_OTHER_HTTP_ACCEPT_HEADERS = {
     "Accept": "*/*",
 }

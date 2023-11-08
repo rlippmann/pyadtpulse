@@ -21,6 +21,7 @@ from yarl import URL
 from .const import (
     ADT_DEFAULT_HTTP_ACCEPT_HEADERS,
     ADT_DEFAULT_HTTP_USER_AGENT,
+    ADT_DEFAULT_SEC_FETCH_HEADERS,
     ADT_DEFAULT_VERSION,
     ADT_HTTP_BACKGROUND_URIS,
     ADT_LOGIN_URI,
@@ -106,6 +107,7 @@ class ADTPulseConnection:
             self._session = session
         self._session.headers.update({"User-Agent": user_agent})
         self._session.headers.update(ADT_DEFAULT_HTTP_ACCEPT_HEADERS)
+        self._session.headers.update(ADT_DEFAULT_SEC_FETCH_HEADERS)
         self._attribute_lock: RLock | DebugRLock
         self._last_login_time: int = 0
         if not debug_locks:
@@ -408,7 +410,10 @@ class ADTPulseConnection:
         Returns:
             Optional[BeautifulSoup]: A Beautiful Soup object, or None if failure
         """
-        code, response, url = await self.async_query(ADT_ORB_URI)
+        code, response, url = await self.async_query(
+            ADT_ORB_URI,
+            extra_headers={"Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"},
+        )
 
         return make_soup(code, response, url, level, error_message)
 
