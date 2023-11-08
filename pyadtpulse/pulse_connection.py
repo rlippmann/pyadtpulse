@@ -7,6 +7,7 @@ import re
 import time
 from random import uniform
 from threading import Lock, RLock
+from urllib.parse import quote
 
 from aiohttp import (
     ClientConnectionError,
@@ -484,13 +485,14 @@ class ADTPulseConnection:
                 ADT_LOGIN_URI,
                 method="POST",
                 extra_params={
+                    "e": "ns",
                     "partner": "adt",
-                    "network": self._site_id,
                 },
                 data={
-                    "usernameForm": username,
-                    "passwordForm": password,
-                    "fingerprint": fingerprint,
+                    "usernameForm": quote(username),
+                    "passwordForm": quote(password),
+                    "networkid": self._site_id,
+                    "fingerprint": quote(fingerprint),
                 },
                 timeout=timeout,
                 requires_authentication=False,
@@ -515,7 +517,7 @@ class ADTPulseConnection:
         params = {}
         if site_id is not None:
             self._site_id = site_id
-        params.update({"network": self._site_id})
+        params.update({"networkid": self._site_id})
 
         params.update({"partner": "adt"})
         await self.async_query(
