@@ -7,6 +7,7 @@ import re
 import time
 from random import uniform
 from threading import Lock, RLock
+from urllib.parse import quote
 
 from aiohttp import (
     ClientConnectionError,
@@ -539,10 +540,10 @@ class ADTPulseConnection:
             return soup
 
         data = {
-            "usernameForm": username,
-            "passwordForm": password,
+            "usernameForm": quote(username),
+            "passwordForm": quote(password),
             "networkid": self._site_id,
-            "fingerprint": fingerprint,
+            "fingerprint": quote(fingerprint),
         }
         if self._site_id != "":
             extra_params = {"partner": "adt", "networkid": self._site_id}

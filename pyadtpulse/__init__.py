@@ -8,6 +8,7 @@ from datetime import datetime
 from random import randint
 from threading import RLock, Thread
 from typing import Union
+from urllib.parse import quote
 from warnings import warn
 
 import uvloop

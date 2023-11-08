@@ -45,6 +45,7 @@ ADT_DEFAULT_SEC_FETCH_HEADERS = {
     "Sec-Ch-Ua-Mobile": "?0",
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-Mode": "navigate",
+    "Upgrade-Insecure-Requests": "1",
 }
 ADT_OTHER_HTTP_ACCEPT_HEADERS = {
     "Accept": "*/*",
