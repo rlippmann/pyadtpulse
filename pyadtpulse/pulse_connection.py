@@ -28,6 +28,7 @@ from .const import (
     ADT_LOGOUT_URI,
     ADT_ORB_URI,
     ADT_OTHER_HTTP_ACCEPT_HEADERS,
+    ADT_SUMMARY_URI,
     API_HOST_CA,
     API_PREFIX,
     DEFAULT_API_HOST,
@@ -464,7 +465,7 @@ class ADTPulseConnection:
 
     async def async_do_login_query(
         self, username: str, password: str, fingerprint: str, timeout: int = 30
-    ) -> tuple[int, str | None, URL | None]:
+    ) -> BeautifulSoup | None:
         """
         Performs a login query to the Pulse site.
 
@@ -473,8 +474,8 @@ class ADTPulseConnection:
             Defaults to 30.
 
         Returns:
-            type of status code (int), response_text Optional[str], and
-            response url (optional)
+            soup: Optional[BeautifulSoup]: A BeautifulSoup object containing summary.jsp,
+            or None if failure
         Raises:
             ValueError: if login parameters are not correct
         """
@@ -499,18 +500,51 @@ class ADTPulseConnection:
             )
         except Exception as e:  # pylint: disable=broad-except
             LOG.error("Could not log into Pulse site: %s", e)
-            return response
+            return None
         if not handle_response(
             response[0],
             response[2],
             logging.ERROR,
             "Error encountered communicating with Pulse site on login",
         ):
-            return response
+            return None
+
+        soup = make_soup(
+            response[0],
+            response[1],
+            response[2],
+            logging.ERROR,
+            "Could not log into ADT Pulse site",
+        )
+        # FIXME: should probably raise exceptions here
+        if soup is None:
+            return None
+        error = soup.find("div", {"id": "warnMsgContents"})
+        if error:
+            LOG.error("Error logging into pulse: %s", error.get_text())
+            return None
+        if self.make_url(ADT_SUMMARY_URI) != str(response[2]):
+            # more specifically:
+            # redirect to signin.jsp = username/password error
+            # redirect to mfaSignin.jsp = fingerprint error
+            # locked out = error == "Sign In unsuccessful. Your account has been locked
+            # after multiple sign in attempts.Try again in 30 minutes."
+            LOG.error("Authentication error encountered logging into ADT Pulse")
+            return None
+
+        error = soup.find("div", "responsiveContainer")
+        if error:
+            LOG.error(
+                "2FA authentiation required for ADT pulse username %s: %s",
+                username,
+                error,
+            )
+            return None
+
         with self._attribute_lock:
             self._authenticated_flag.set()
             self._last_login_time = int(time.time())
-        return response
+        return soup
 
     async def async_do_logout_query(self, site_id: str | None) -> None:
         """Performs a logout query to the ADT Pulse site."""

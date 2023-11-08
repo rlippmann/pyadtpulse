@@ -24,14 +24,13 @@ from .const import (
     ADT_MAX_KEEPALIVE_INTERVAL,
     ADT_MAX_RELOGIN_BACKOFF,
     ADT_MIN_RELOGIN_INTERVAL,
-    ADT_SUMMARY_URI,
     ADT_SYNC_CHECK_URI,
     ADT_TIMEOUT_URI,
     DEFAULT_API_HOST,
 )
 from .pulse_connection import ADTPulseConnection
 from .site import ADTPulseSite
-from .util import AuthenticationException, DebugRLock, handle_response, make_soup
+from .util import AuthenticationException, DebugRLock, handle_response
 
 LOG = logging.getLogger(__name__)
 
@@ -697,42 +696,10 @@ class PyADTPulse:
         LOG.debug("Authenticating to ADT Pulse cloud service as %s", self._username)
         await self._pulse_connection.async_fetch_version()
 
-        response = await self._pulse_connection.async_do_login_query(
+        soup = await self._pulse_connection.async_do_login_query(
             self.username, self._password, self._fingerprint
         )
-        if not handle_response(
-            response[0], response[2], logging.ERROR, "Error authenticating to ADT Pulse"
-        ):
-            return False
-        if self._pulse_connection.make_url(ADT_SUMMARY_URI) != str(response[2]):
-            # more specifically:
-            # redirect to signin.jsp = username/password error
-            # redirect to mfaSignin.jsp = fingerprint error
-            LOG.error("Authentication error encountered logging into ADT Pulse")
-            return False
-
-        soup = make_soup(
-            response[0],
-            response[1],
-            response[2],
-            logging.ERROR,
-            "Could not log into ADT Pulse site",
-        )
         if soup is None:
-            return False
-
-        # FIXME: should probably raise exceptions
-        error = soup.find("div", {"id": "warnMsgContents"})
-        if error:
-            LOG.error("Invalid ADT Pulse username/password: %s", error)
-            return False
-        error = soup.find("div", "responsiveContainer")
-        if error:
-            LOG.error(
-                "2FA authentiation required for ADT pulse username %s: %s",
-                self.username,
-                error,
-            )
             return False
         # if tasks are started, we've already logged in before
         if self._sync_task is not None or self._timeout_task is not None:
