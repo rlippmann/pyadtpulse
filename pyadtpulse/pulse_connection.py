@@ -55,6 +55,7 @@ class ADTPulseConnection:
         "_retry_after",
         "_authenticated_flag",
         "_detailed_debug_logging",
+        "_site_id",
     )
 
     @staticmethod
@@ -112,6 +113,7 @@ class ADTPulseConnection:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._retry_after = int(time.time())
         self._detailed_debug_logging = detailed_debug_logging
+        self._site_id = ""
 
     def __del__(self):
         """Destructor for ADTPulseConnection."""
@@ -472,48 +474,46 @@ class ADTPulseConnection:
         Raises:
             ValueError: if login parameters are not correct
         """
-        status = 200
-        response_text = None
-        url = None
+        response: tuple[int, str | None, URL | None] = (200, None, None)
         self.check_login_parameters(username, password, fingerprint)
         try:
-            status, response_text, url = await self.async_query(
+            response = await self.async_query(
                 ADT_LOGIN_URI,
                 method="POST",
                 extra_params={
                     "partner": "adt",
-                    "e": "ns",
+                    "network": self._site_id,
+                },
+                data={
                     "usernameForm": username,
                     "passwordForm": password,
                     "fingerprint": fingerprint,
-                    "sun": "yes",
                 },
                 timeout=timeout,
                 requires_authentication=False,
             )
         except Exception as e:  # pylint: disable=broad-except
             LOG.error("Could not log into Pulse site: %s", e)
-            return (status, response_text, url)
-        if not status:
-            LOG.error("Could not log into Pulse site.")
-            return (status, response_text, url)
+            return response
         if not handle_response(
-            status,
-            url,
+            response[0],
+            response[2],
             logging.ERROR,
             "Error encountered communicating with Pulse site on login",
         ):
-            return (status, response_text, url)
+            return response
         with self._attribute_lock:
             self._authenticated_flag.set()
             self._last_login_time = int(time.time())
-        return (status, response_text, url)
+        return response
 
     async def async_do_logout_query(self, site_id: str | None) -> None:
         """Performs a logout query to the ADT Pulse site."""
         params = {}
         if site_id is not None:
-            params.update({"network": site_id})
+            self._site_id = site_id
+        params.update({"network": self._site_id})
+
         params.update({"partner": "adt"})
         await self.async_query(
             ADT_LOGOUT_URI,

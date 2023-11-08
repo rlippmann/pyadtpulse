@@ -17,7 +17,7 @@ from yarl import URL
 
 from .alarm_panel import ADT_ALARM_UNKNOWN
 from .const import (
-    ADT_DEFAULT_HTTP_HEADERS,
+    ADT_DEFAULT_HTTP_USER_AGENT,
     ADT_DEFAULT_KEEPALIVE_INTERVAL,
     ADT_DEFAULT_RELOGIN_INTERVAL,
     ADT_GATEWAY_STRING,
@@ -84,7 +84,7 @@ class PyADTPulse:
         password: str,
         fingerprint: str,
         service_host: str = DEFAULT_API_HOST,
-        user_agent=ADT_DEFAULT_HTTP_HEADERS["User-Agent"],
+        user_agent=ADT_DEFAULT_HTTP_USER_AGENT["User-Agent"],
         websession: ClientSession | None = None,
         do_login: bool = True,
         debug_locks: bool = False,
