@@ -40,6 +40,7 @@ black = "^23.10.1"
 mypy = "^1.6.1"
 pylint = "^3.0.2"
 types-beautifulsoup4 = "^4.12.0.7"
+refurb = "^1.22.1"
 
 [build-system]
 requires = ["poetry-core"]
