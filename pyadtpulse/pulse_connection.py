@@ -546,6 +546,13 @@ class ADTPulseConnection:
             "fingerprint": quote(fingerprint),
         }
         method = "GET"
+        self._session.cookie_jar.update_cookies(
+            {
+                "X-mobile-browser": "false",
+                "ICLocal": "en_US",
+            },
+            URL(self.service_host + "/"),
+        )
         extra_params = {"partner": "adt"}
         if self._site_id != "":
             extra_params.update({"networkid": self._site_id})
