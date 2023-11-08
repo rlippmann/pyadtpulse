@@ -371,6 +371,7 @@ def sync_example(
     poll_interval: float,
     keepalive_interval: int,
     relogin_interval: int,
+    detailed_debug_logging: bool,
 ) -> None:
     """Run example of sync pyadtpulse calls.
 
@@ -383,6 +384,7 @@ def sync_example(
         debug_locks: bool: True to enable thread lock debugging
         keepalive_interval (int): keepalive interval in minutes
         relogin_interval (int): relogin interval in minutes
+        detailed_debug_logging (bool): True to enable detailed debug logging
     """
     try:
         adt = PyADTPulse(
@@ -392,6 +394,7 @@ def sync_example(
             debug_locks=debug_locks,
             keepalive_interval=keepalive_interval,
             relogin_interval=relogin_interval,
+            detailed_debug_logging=detailed_debug_logging,
         )
     except AuthenticationException:
         print("Invalid credentials for ADT Pulse site")
@@ -468,7 +471,8 @@ async def async_test_alarm(adt: PyADTPulse) -> None:
             print("Arming stay pending check succeeded")
         else:
             print(
-                f"FAIL: Arming home pending check failed {adt.site.alarm_control_panel} "
+                "FAIL: Arming home pending check failed "
+                f"{adt.site.alarm_control_panel} "
             )
         if await adt.wait_for_update():
             if adt.site.alarm_control_panel.is_home:
@@ -591,6 +595,7 @@ async def async_example(
     poll_interval: float,
     keepalive_interval: int,
     relogin_interval: int,
+    detailed_debug_logging: bool,
 ) -> None:
     """Run example of pytadtpulse async usage.
 
@@ -603,6 +608,7 @@ async def async_example(
         poll_interval (float): polling interval in seconds
         keepalive_interval (int): keepalive interval in minutes
         relogin_interval (int): relogin interval in minutes
+        detailed_debug_logging (bool): enable detailed debug logging
     """
     adt = PyADTPulse(
         username,
@@ -612,6 +618,7 @@ async def async_example(
         debug_locks=debug_locks,
         keepalive_interval=keepalive_interval,
         relogin_interval=relogin_interval,
+        detailed_debug_logging=detailed_debug_logging,
     )
 
     if not await adt.async_login():
@@ -692,6 +699,7 @@ def main():
             args.poll_interval,
             args.keepalive_interval,
             args.relogin_interval,
+            args.detailed_debug_logging,
         )
     else:
         asyncio.run(
@@ -704,6 +712,7 @@ def main():
                 args.poll_interval,
                 args.keepalive_interval,
                 args.relogin_interval,
+                args.detailed_debug_logging,
             )
         )
 
