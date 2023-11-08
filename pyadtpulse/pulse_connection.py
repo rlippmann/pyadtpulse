@@ -545,23 +545,31 @@ class ADTPulseConnection:
             "networkid": self._site_id,
             "fingerprint": quote(fingerprint),
         }
+        method = "GET"
+        extra_params = {"partner": "adt"}
         if self._site_id != "":
-            extra_params = {"partner": "adt", "networkid": self._site_id}
+            extra_params.update({"networkid": self._site_id})
+            method = "POST"
         else:
-            extra_params = None
+            extra_params.update({"e": "ns"})
         self.check_login_parameters(username, password, fingerprint)
-        try:
-            response = await self.async_query(
-                ADT_LOGIN_URI,
-                method="POST",
-                extra_params=extra_params,
-                data=data,
-                timeout=timeout,
-                requires_authentication=False,
-            )
-        except Exception as e:  # pylint: disable=broad-except
-            LOG.error("Could not log into Pulse site: %s", e)
-            return None
+        # need to perform a get before a post if there's no network id
+        while True:
+            try:
+                response = await self.async_query(
+                    ADT_LOGIN_URI,
+                    method=method,
+                    extra_params=extra_params,
+                    data=data if method == "POST" else None,
+                    timeout=timeout,
+                    requires_authentication=False,
+                )
+                if method == "POST":
+                    break
+                method = "POST"
+            except Exception as e:  # pylint: disable=broad-except
+                LOG.error("Could not log into Pulse site: %s", e)
+                return None
         soup = check_response()
         if soup is None:
             return None
