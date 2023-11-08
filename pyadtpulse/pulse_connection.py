@@ -34,7 +34,8 @@ from .const import (
 )
 from .util import DebugRLock, handle_response, make_soup
 
-RECOVERABLE_ERRORS = [500, 502, 504]
+RECOVERABLE_ERRORS = {500, 502, 504}
+RETRY_LATER_ERRORS = {429: "Too Many Requests", 503: "Service Unavailable"}
 LOG = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
@@ -204,32 +205,25 @@ class ADTPulseConnection:
                 raise RuntimeError(message)
         return self._loop
 
-    def _set_retry_after(self, response: ClientResponse) -> None:
+    def _set_retry_after(self, code: int, retry_after: str) -> None:
         """
         Check the "Retry-After" header in the response and set retry_after property
         based upon it.
 
         Parameters:
-            response (ClientResponse): The response object.
+            code (int): The HTTP response code
+            retry_after (str): The value of the "Retry-After" header
 
         Returns:
             None.
         """
-        header_value = response.headers.get("Retry-After")
-        if header_value is None:
-            return
-        reason = "Unknown"
-        if response.status == 429:
-            reason = "Too many requests"
-        elif response.status == 503:
-            reason = "Service unavailable"
-        if header_value.isnumeric():
-            retval = int(header_value)
+        if retry_after.isnumeric():
+            retval = int(retry_after)
         else:
             try:
                 retval = int(
                     datetime.datetime.strptime(
-                        header_value, "%a, %d %b %G %T %Z"
+                        retry_after, "%a, %d %b %G %T %Z"
                     ).timestamp()
                 )
             except ValueError:
@@ -238,7 +232,7 @@ class ADTPulseConnection:
             "Task %s received Retry-After %s due to %s",
             asyncio.current_task(),
             retval,
-            reason,
+            RETRY_LATER_ERRORS.get(code, "Unknown error"),
         )
         self.retry_after = int(time.time()) + retval
 
@@ -309,6 +303,7 @@ class ADTPulseConnection:
                 timeout,
             )
         retry = 0
+        retry_after: str | None = None
         response: ClientResponse | None = None
         while retry < MAX_RETRIES:
             try:
@@ -324,6 +319,7 @@ class ADTPulseConnection:
                     response_text = await response.text()
                     return_code = response.status
                     response_url = response.url
+                    retry_after = response.headers.get("Retry-After")
 
                     if response.status in RECOVERABLE_ERRORS:
                         LOG.info(
@@ -348,9 +344,8 @@ class ADTPulseConnection:
                 ClientConnectorError,
                 ClientResponseError,
             ) as ex:
-                if response and response.status in (429, 503):
-                    self._set_retry_after(response)
-                    response = None
+                if retry_after is not None:
+                    self._set_retry_after(return_code, retry_after)
                     break
                 LOG.debug(
                     "Error %s occurred making %s request to %s, retrying",
@@ -541,16 +536,13 @@ class ADTPulseConnection:
         data = {
             "usernameForm": username,
             "passwordForm": password,
+            "networkid": self._site_id,
             "fingerprint": fingerprint,
         }
-        extra_params = {"partner": "adt"}
         if self._site_id != "":
-            data["networkid"] = self._site_id
-            extra_params["networkid"] = self._site_id
+            extra_params = {"partner": "adt", "networkid": self._site_id}
         else:
-            extra_params["sun"] = "yes"
-            extra_params["e"] = "ns"
-
+            extra_params = None
         self.check_login_parameters(username, password, fingerprint)
         try:
             response = await self.async_query(
