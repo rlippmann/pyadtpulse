@@ -354,6 +354,8 @@ class ADTPulseConnection:
                     url,
                     exc_info=True,
                 )
+            finally:
+                await self._session.close()
 
         return (return_code, response_text, response_url)
 
