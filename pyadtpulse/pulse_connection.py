@@ -5,6 +5,7 @@ import asyncio
 import datetime
 import re
 import time
+from http import HTTPStatus
 from random import uniform
 from threading import Lock, RLock
 from urllib.parse import quote
@@ -33,11 +34,16 @@ from .const import (
     API_HOST_CA,
     API_PREFIX,
     DEFAULT_API_HOST,
+    ConnectionFailureReason,
 )
 from .util import DebugRLock, handle_response, make_soup
 
-RECOVERABLE_ERRORS = {500, 502, 504}
-RETRY_LATER_ERRORS = {429: "Too Many Requests", 503: "Service Unavailable"}
+RECOVERABLE_ERRORS = {
+    HTTPStatus.INTERNAL_SERVER_ERROR,
+    HTTPStatus.BAD_GATEWAY,
+    HTTPStatus.GATEWAY_TIMEOUT,
+}
+RETRY_LATER_ERRORS = {HTTPStatus.SERVICE_UNAVAILABLE, HTTPStatus.TOO_MANY_REQUESTS}
 LOG = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
@@ -60,6 +66,7 @@ class ADTPulseConnection:
         "_authenticated_flag",
         "_detailed_debug_logging",
         "_site_id",
+        "_connection_failure_reason",
     )
 
     @staticmethod
@@ -87,6 +94,12 @@ class ADTPulseConnection:
             raise ValueError("Password is mandatory")
         if fingerprint is None or fingerprint == "":
             raise ValueError("Fingerprint is required")
+
+    @staticmethod
+    def get_http_status_description(status_code: int) -> str:
+        """Get HTTP status description."""
+        status = HTTPStatus(status_code)
+        return status.description
 
     def __init__(
         self,
@@ -119,6 +132,7 @@ class ADTPulseConnection:
         self._retry_after = int(time.time())
         self._detailed_debug_logging = detailed_debug_logging
         self._site_id = ""
+        self._connection_failure_reason = ConnectionFailureReason.NO_FAILURE
 
     def __del__(self):
         """Destructor for ADTPulseConnection."""
@@ -198,6 +212,17 @@ class ADTPulseConnection:
         with self._attribute_lock:
             self._detailed_debug_logging = value
 
+    @property
+    def connection_failure_reason(self) -> ConnectionFailureReason:
+        """Get the connection failure reason."""
+        with self._attribute_lock:
+            return self._connection_failure_reason
+
+    def _set_connection_failure_reason(self, reason: ConnectionFailureReason) -> None:
+        """Set the connection failure reason."""
+        with self._attribute_lock:
+            self._connection_failure_reason = reason
+
     def check_sync(self, message: str) -> asyncio.AbstractEventLoop:
         """Checks if sync login was performed.
 
@@ -235,9 +260,14 @@ class ADTPulseConnection:
             "Task %s received Retry-After %s due to %s",
             asyncio.current_task(),
             retval,
-            RETRY_LATER_ERRORS.get(code, "Unknown error"),
+            self.get_http_status_description(code),
         )
         self.retry_after = int(time.time()) + retval
+        try:
+            fail_reason = ConnectionFailureReason(code)
+        except ValueError:
+            fail_reason = ConnectionFailureReason.UNKNOWN
+        self._set_connection_failure_reason(fail_reason)
 
     async def async_query(
         self,
@@ -272,7 +302,7 @@ class ADTPulseConnection:
             response
         """
         response_text: str | None = None
-        return_code: int = 200
+        return_code: int = HTTPStatus.OK
         response_url: URL | None = None
         current_time = time.time()
         if self.retry_after > current_time:
@@ -324,11 +354,12 @@ class ADTPulseConnection:
                     response_url = response.url
                     retry_after = response.headers.get("Retry-After")
 
-                    if response.status in RECOVERABLE_ERRORS:
+                    if return_code in RECOVERABLE_ERRORS:
                         LOG.info(
-                            "query returned recoverable error code %s, "
+                            "query returned recoverable error code %s: %s,"
                             "retrying (count = %d)",
-                            response.status,
+                            return_code,
+                            self.get_http_status_description(return_code),
                             retry,
                         )
                         if retry == MAX_RETRIES:
@@ -348,7 +379,10 @@ class ADTPulseConnection:
                 ClientResponseError,
             ) as ex:
                 if retry_after is not None:
-                    self._set_retry_after(return_code, retry_after)
+                    self._set_retry_after(
+                        return_code,
+                        retry_after,
+                    )
                     break
                 LOG.debug(
                     "Error %s occurred making %s request to %s, retrying",
@@ -501,6 +535,7 @@ class ADTPulseConnection:
                 logging.ERROR,
                 "Error encountered communicating with Pulse site on login",
             ):
+                self._set_connection_failure_reason(ConnectionFailureReason.UNKNOWN)
                 return None
 
             soup = make_soup(
@@ -527,6 +562,9 @@ class ADTPulseConnection:
                 # locked out = error == "Sign In unsuccessful. Your account has been
                 # locked after multiple sign in attempts.Try again in 30 minutes."
                 LOG.error("Authentication error encountered logging into ADT Pulse")
+                self._set_connection_failure_reason(
+                    ConnectionFailureReason.INVALID_CREDENTIALS
+                )
                 return None
 
             error = soup.find("div", "responsiveContainer")
@@ -535,6 +573,9 @@ class ADTPulseConnection:
                     "2FA authentiation required for ADT pulse username %s: %s",
                     username,
                     error,
+                )
+                self._set_connection_failure_reason(
+                    ConnectionFailureReason.MFA_REQUIRED
                 )
                 return None
             return soup
@@ -576,6 +617,7 @@ class ADTPulseConnection:
                 method = "POST"
             except Exception as e:  # pylint: disable=broad-except
                 LOG.error("Could not log into Pulse site: %s", e)
+                self._set_connection_failure_reason(ConnectionFailureReason.UNKNOWN)
                 return None
         soup = check_response()
         if soup is None:

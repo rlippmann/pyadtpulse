@@ -8,7 +8,6 @@ from datetime import datetime
 from random import randint
 from threading import RLock, Thread
 from typing import Union
-from urllib.parse import quote
 from warnings import warn
 
 import uvloop
@@ -28,6 +27,7 @@ from .const import (
     ADT_SYNC_CHECK_URI,
     ADT_TIMEOUT_URI,
     DEFAULT_API_HOST,
+    ConnectionFailureReason,
 )
 from .pulse_connection import ADTPulseConnection
 from .site import ADTPulseSite
@@ -284,6 +284,10 @@ class PyADTPulse:
         with self._attribute_lock:
             self._detailed_debug_logging = value
         self._pulse_connection.detailed_debug_logging = value
+
+    @property
+    def connection_failure_reason(self) -> ConnectionFailureReason:
+        return self._pulse_connection.connection_failure_reason
 
     async def _update_sites(self, soup: BeautifulSoup) -> None:
         with self._attribute_lock:
