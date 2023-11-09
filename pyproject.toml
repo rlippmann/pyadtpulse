@@ -14,7 +14,8 @@ classifiers = [
     ]
 include = [
     { path = "doc"},
-    { path = "examples" },
+    "example-client.py",
+    "example-client.json",
     "CHANGELOG.md",
 ]
 
