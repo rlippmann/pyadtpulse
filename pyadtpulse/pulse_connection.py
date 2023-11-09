@@ -7,8 +7,7 @@ import re
 import time
 from http import HTTPStatus
 from random import uniform
-from threading import Lock, RLock
-from urllib.parse import quote
+from threading import RLock
 
 from aiohttp import (
     ClientConnectionError,
@@ -47,13 +46,14 @@ RETRY_LATER_ERRORS = {HTTPStatus.SERVICE_UNAVAILABLE, HTTPStatus.TOO_MANY_REQUES
 LOG = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
+SESSION_COOKIES = {"X-mobile-browser": "false", "ICLocal": "en_US"}
 
 
 class ADTPulseConnection:
     """ADT Pulse connection related attributes."""
 
     _api_version = ADT_DEFAULT_VERSION
-    _class_threadlock = Lock()
+    _class_threadlock = RLock()
 
     __slots__ = (
         "_api_host",
@@ -110,8 +110,11 @@ class ADTPulseConnection:
         detailed_debug_logging: bool = False,
     ):
         """Initialize ADT Pulse connection."""
-        self.check_service_host(host)
-        self._api_host = host
+        self._attribute_lock: RLock | DebugRLock
+        if not debug_locks:
+            self._attribute_lock = RLock()
+        else:
+            self._attribute_lock = DebugRLock("ADTPulseConnection._attribute_lock")
         self._allocated_session = False
         self._authenticated_flag = asyncio.Event()
         if session is None:
@@ -119,15 +122,13 @@ class ADTPulseConnection:
             self._session = ClientSession()
         else:
             self._session = session
+        # need to initialize this after the session since we set cookies
+        # based on it
+        self.service_host = host
         self._session.headers.update({"User-Agent": user_agent})
         self._session.headers.update(ADT_DEFAULT_HTTP_ACCEPT_HEADERS)
         self._session.headers.update(ADT_DEFAULT_SEC_FETCH_HEADERS)
-        self._attribute_lock: RLock | DebugRLock
         self._last_login_time: int = 0
-        if not debug_locks:
-            self._attribute_lock = RLock()
-        else:
-            self._attribute_lock = DebugRLock("ADTPulseConnection._attribute_lock")
         self._loop: asyncio.AbstractEventLoop | None = None
         self._retry_after = int(time.time())
         self._detailed_debug_logging = detailed_debug_logging
@@ -158,6 +159,7 @@ class ADTPulseConnection:
     @service_host.setter
     def service_host(self, host: str) -> None:
         """Set the host prefix for connections."""
+        self.check_service_host(host)
         with self._attribute_lock:
             self._session.headers.update({"Host": host})
             self._api_host = host
@@ -275,7 +277,6 @@ class ADTPulseConnection:
         method: str = "GET",
         extra_params: dict[str, str] | None = None,
         extra_headers: dict[str, str] | None = None,
-        data: dict[str, str] | None = None,
         timeout: int = 1,
         requires_authentication: bool = True,
     ) -> tuple[int, str | None, URL | None]:
@@ -285,11 +286,10 @@ class ADTPulseConnection:
         Args:
             uri (str): URI to query
             method (str, optional): method to use. Defaults to "GET".
-            extra_params (Optional[Dict], optional): query parameters.
+            extra_params (Optional[Dict], optional): query/body parameters.
                                                     Defaults to None.
             extra_headers (Optional[Dict], optional): extra HTTP headers.
                                                     Defaults to None.
-            data (Optional[Dict], optional): data to send. Defaults to None.
             timeout (int, optional): timeout in seconds. Defaults to 1.
             requires_authentication (bool, optional): True if authentication is
                                                     required to perform query.
@@ -301,9 +301,23 @@ class ADTPulseConnection:
             tuple with integer return code, optional response text, and optional URL of
             response
         """
-        response_text: str | None = None
-        return_code: int = HTTPStatus.OK
-        response_url: URL | None = None
+
+        async def handle_query_response(
+            response: ClientResponse | None,
+        ) -> tuple[int, str | None, URL | None, str | None]:
+            if response is None:
+                return 0, None, None, None
+            response_text = await response.text()
+
+            return (
+                response.status,
+                response_text,
+                response.url,
+                response.headers.get("Retry-After"),
+            )
+
+        if method not in ("GET", "POST"):
+            raise ValueError("method must be GET or POST")
         current_time = time.time()
         if self.retry_after > current_time:
             LOG.debug(
@@ -328,38 +342,38 @@ class ADTPulseConnection:
             headers.setdefault("Accept", ADT_OTHER_HTTP_ACCEPT_HEADERS["Accept"])
         if self.detailed_debug_logging:
             LOG.debug(
-                "Attempting %s %s params=%s data=%s timeout=%d",
+                "Attempting %s %s params=%s timeout=%d",
                 method,
                 url,
                 extra_params,
-                data,
                 timeout,
             )
         retry = 0
-        retry_after: str | None = None
-        response: ClientResponse | None = None
+        return_value: tuple[int, str | None, URL | None, str | None] = (
+            HTTPStatus.OK.value,
+            None,
+            None,
+            None,
+        )
         while retry < MAX_RETRIES:
             try:
                 async with self._session.request(
                     method,
                     url,
                     headers=extra_headers,
-                    params=extra_params,
-                    data=data,
+                    params=extra_params if method == "GET" else None,
+                    data=extra_params if method == "POST" else None,
                     timeout=timeout,
                 ) as response:
+                    return_value = await handle_query_response(response)
                     retry += 1
-                    response_text = await response.text()
-                    return_code = response.status
-                    response_url = response.url
-                    retry_after = response.headers.get("Retry-After")
 
-                    if return_code in RECOVERABLE_ERRORS:
+                    if return_value[0] in RECOVERABLE_ERRORS:
                         LOG.info(
                             "query returned recoverable error code %s: %s,"
                             "retrying (count = %d)",
-                            return_code,
-                            self.get_http_status_description(return_code),
+                            return_value[0],
+                            self.get_http_status_description(return_value[0]),
                             retry,
                         )
                         if retry == MAX_RETRIES:
@@ -378,21 +392,21 @@ class ADTPulseConnection:
                 ClientConnectorError,
                 ClientResponseError,
             ) as ex:
-                if retry_after is not None:
+                if return_value[0] is not None and return_value[3] is not None:
                     self._set_retry_after(
-                        return_code,
-                        retry_after,
+                        return_value[0],
+                        return_value[3],
                     )
                     break
                 LOG.debug(
-                    "Error %s occurred making %s request to %s, retrying",
+                    "Error %s occurred making %s request to %s",
                     ex.args,
                     method,
                     url,
                     exc_info=True,
                 )
-
-        return (return_code, response_text, response_url)
+                break
+        return (return_value[0], return_value[1], return_value[2])
 
     def query(
         self,
@@ -400,7 +414,6 @@ class ADTPulseConnection:
         method: str = "GET",
         extra_params: dict[str, str] | None = None,
         extra_headers: dict[str, str] | None = None,
-        data: dict[str, str] | None = None,
         timeout=1,
         requires_authentication: bool = True,
     ) -> tuple[int, str | None, URL | None]:
@@ -409,10 +422,9 @@ class ADTPulseConnection:
         Args:
             uri (str): URI to query
             method (str, optional): method to use. Defaults to "GET".
-            extra_params (Optional[Dict], optional): query parameters. Defaults to None.
+            extra_params (Optional[Dict], optional): query/body parameters. Defaults to None.
             extra_headers (Optional[Dict], optional): extra HTTP headers.
                                                     Defaults to None.
-            data (Optional[Dict], optional): data to send. Defaults to None.
             timeout (int, optional): timeout in seconds. Defaults to 1.
             requires_authentication (bool, optional): True if authentication is required
                                                     to perform query. Defaults to True.
@@ -427,7 +439,6 @@ class ADTPulseConnection:
             method,
             extra_params,
             extra_headers,
-            data=data,
             timeout=timeout,
             requires_authentication=requires_authentication,
         )
@@ -467,19 +478,24 @@ class ADTPulseConnection:
     async def async_fetch_version(self) -> None:
         """Fetch ADT Pulse version."""
         response_path: str | None = None
+        response_code = HTTPStatus.OK.value
         with ADTPulseConnection._class_threadlock:
             if ADTPulseConnection._api_version != ADT_DEFAULT_VERSION:
                 return
 
-            signin_url = f"{self.service_host}/myhome{ADT_LOGIN_URI}"
+            signin_url = f"{self.service_host}"
             try:
-                async with self._session.get(signin_url) as response:
+                async with self._session.get(
+                    signin_url,
+                ) as response:
+                    response_code = response.status
                     # we only need the headers here, don't parse response
                     response.raise_for_status()
                     response_path = response.url.path
             except (ClientResponseError, ClientConnectionError):
                 LOG.warning(
-                    "Error occurred during API version fetch, defaulting to %s",
+                    "Error %i: occurred during API version fetch, defaulting to %s",
+                    response_code,
                     ADT_DEFAULT_VERSION,
                 )
                 return
@@ -527,7 +543,9 @@ class ADTPulseConnection:
                     seconds *= 60
             return seconds
 
-        def check_response() -> BeautifulSoup | None:
+        def check_response(
+            response: tuple[int, str | None, URL | None]
+        ) -> BeautifulSoup | None:
             """Check response for errors."""
             if not handle_response(
                 response[0],
@@ -581,45 +599,32 @@ class ADTPulseConnection:
             return soup
 
         data = {
-            "usernameForm": quote(username),
-            "passwordForm": quote(password),
+            "usernameForm": username,
+            "passwordForm": password,
             "networkid": self._site_id,
-            "fingerprint": quote(fingerprint),
+            "fingerprint": fingerprint,
         }
-        method = "GET"
-        self._session.cookie_jar.update_cookies(
-            {
-                "X-mobile-browser": "false",
-                "ICLocal": "en_US",
-            },
-            URL(self.service_host + "/"),
-        )
-        extra_params = {"partner": "adt"}
-        if self._site_id != "":
-            extra_params.update({"networkid": self._site_id})
-            method = "POST"
-        else:
-            extra_params.update({"e": "ns"})
         self.check_login_parameters(username, password, fingerprint)
-        # need to perform a get before a post if there's no network id
-        while True:
-            try:
-                response = await self.async_query(
-                    ADT_LOGIN_URI,
-                    method=method,
-                    extra_params=extra_params,
-                    data=data if method == "POST" else None,
-                    timeout=timeout,
-                    requires_authentication=False,
-                )
-                if method == "POST":
-                    break
-                method = "POST"
-            except Exception as e:  # pylint: disable=broad-except
-                LOG.error("Could not log into Pulse site: %s", e)
-                self._set_connection_failure_reason(ConnectionFailureReason.UNKNOWN)
+        try:
+            response = await self.async_query(
+                ADT_LOGIN_URI,
+                "POST",
+                extra_params=data,
+                timeout=timeout,
+                requires_authentication=False,
+            )
+            if not handle_response(
+                response[0],
+                response[2],
+                logging.ERROR,
+                "Error encountered during ADT login GET",
+            ):
                 return None
-        soup = check_response()
+        except Exception as e:  # pylint: disable=broad-except
+            LOG.error("Could not log into Pulse site: %s", e)
+            self._set_connection_failure_reason(ConnectionFailureReason.UNKNOWN)
+            return None
+        soup = check_response(response)
         if soup is None:
             return None
         with self._attribute_lock:
