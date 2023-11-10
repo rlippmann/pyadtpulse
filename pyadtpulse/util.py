@@ -232,6 +232,21 @@ def parse_pulse_datetime(datestring: str) -> datetime:
     return last_update
 
 
+def set_debug_lock(debug_lock: bool, name: str) -> RLock | DebugRLock:
+    """Set lock or debug lock
+
+    Args:
+        debug_lock (bool): set a debug lock
+        name (str): debug lock name
+
+    Returns:
+        RLock | DebugRLock: lock object to return
+    """
+    if debug_lock:
+        return DebugRLock(name)
+    return RLock()
+
+
 class AuthenticationException(RuntimeError):
     """Raised when a login failed."""
 

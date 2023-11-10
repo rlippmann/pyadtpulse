@@ -287,6 +287,7 @@ class PyADTPulse:
 
     @property
     def connection_failure_reason(self) -> ConnectionFailureReason:
+        """Get the connection failure reason."""
         return self._pulse_connection.connection_failure_reason
 
     async def _update_sites(self, soup: BeautifulSoup) -> None:
