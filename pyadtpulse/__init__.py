@@ -7,7 +7,6 @@ import time
 from datetime import datetime
 from random import randint
 from threading import RLock, Thread
-from typing import Union
 from warnings import warn
 
 import uvloop
@@ -31,7 +30,7 @@ from .const import (
 )
 from .pulse_connection import ADTPulseConnection
 from .site import ADTPulseSite
-from .util import AuthenticationException, DebugRLock, handle_response
+from .util import AuthenticationException, DebugRLock, handle_response, set_debug_lock
 
 LOG = logging.getLogger(__name__)
 
@@ -140,11 +139,7 @@ class PyADTPulse:
         self._updates_exist = asyncio.locks.Event()
 
         self._session_thread: Thread | None = None
-        self._attribute_lock: RLock | DebugRLock
-        if not debug_locks:
-            self._attribute_lock = RLock()
-        else:
-            self._attribute_lock = DebugRLock("PyADTPulse._attribute_lock")
+        self._attribute_lock = set_debug_lock(debug_locks, "pyadtpulse.attribute_lock")
 
         self._site: ADTPulseSite | None = None
         self.keepalive_interval = keepalive_interval
@@ -678,7 +673,7 @@ class PyADTPulse:
             raise AuthenticationException(self._username)
 
     @property
-    def attribute_lock(self) -> Union[RLock, DebugRLock]:
+    def attribute_lock(self) -> "RLock| DebugRLock":
         """Get attribute lock for PyADTPulse object.
 
         Returns:

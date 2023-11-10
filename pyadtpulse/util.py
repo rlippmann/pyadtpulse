@@ -232,7 +232,7 @@ def parse_pulse_datetime(datestring: str) -> datetime:
     return last_update
 
 
-def set_debug_lock(debug_lock: bool, name: str) -> RLock | DebugRLock:
+def set_debug_lock(debug_lock: bool, name: str) -> "RLock | DebugRLock":
     """Set lock or debug lock
 
     Args:

@@ -5,7 +5,6 @@ from asyncio import Task, create_task, gather, get_event_loop, run_coroutine_thr
 from datetime import datetime
 from threading import RLock
 from time import time
-from typing import Union
 from warnings import warn
 
 # import dateparser
@@ -15,7 +14,13 @@ from .alarm_panel import ADTPulseAlarmPanel
 from .const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_SYSTEM_URI
 from .gateway import ADTPulseGateway
 from .pulse_connection import ADTPulseConnection
-from .util import DebugRLock, make_soup, parse_pulse_datetime, remove_prefix
+from .util import (
+    DebugRLock,
+    make_soup,
+    parse_pulse_datetime,
+    remove_prefix,
+    set_debug_lock,
+)
 from .zones import ADTPulseFlattendZone, ADTPulseZones
 
 LOG = logging.getLogger(__name__)
@@ -52,10 +57,9 @@ class ADTPulseSite:
         self._last_updated: int = 0
         self._zones = ADTPulseZones()
         self._site_lock: RLock | DebugRLock
-        if isinstance(self._pulse_connection._attribute_lock, DebugRLock):
-            self._site_lock = DebugRLock("ADTPulseSite._site_lock")
-        else:
-            self._site_lock = RLock()
+        self._site_lock = set_debug_lock(
+            self._pulse_connection.debug_locks, "pyadtpulse.site_lock"
+        )
         self._alarm_panel = ADTPulseAlarmPanel()
         self._gateway = ADTPulseGateway()
 
@@ -91,7 +95,7 @@ class ADTPulseSite:
             return self._last_updated
 
     @property
-    def site_lock(self) -> Union[RLock, DebugRLock]:
+    def site_lock(self) -> "RLock| DebugRLock":
         """Get thread lock for site data.
 
         Not needed for async
@@ -103,46 +107,34 @@ class ADTPulseSite:
 
     def arm_home(self, force_arm: bool = False) -> bool:
         """Arm system home."""
-        if self.alarm_control_panel is None:
-            raise RuntimeError("Cannot arm system home, no control panels exist")
         return self.alarm_control_panel.arm_home(
             self._pulse_connection, force_arm=force_arm
         )
 
     def arm_away(self, force_arm: bool = False) -> bool:
         """Arm system away."""
-        if self.alarm_control_panel is None:
-            raise RuntimeError("Cannot arm system away, no control panels exist")
         return self.alarm_control_panel.arm_away(
             self._pulse_connection, force_arm=force_arm
         )
 
     def disarm(self) -> bool:
         """Disarm system."""
-        if self.alarm_control_panel is None:
-            raise RuntimeError("Cannot disarm system, no control panels exist")
         return self.alarm_control_panel.disarm(self._pulse_connection)
 
     async def async_arm_home(self, force_arm: bool = False) -> bool:
         """Arm system home async."""
-        if self.alarm_control_panel is None:
-            raise RuntimeError("Cannot arm system home, no control panels exist")
         return await self.alarm_control_panel.async_arm_home(
             self._pulse_connection, force_arm=force_arm
         )
 
     async def async_arm_away(self, force_arm: bool = False) -> bool:
         """Arm system away async."""
-        if self.alarm_control_panel is None:
-            raise RuntimeError("Cannot arm system away, no control panels exist")
         return await self.alarm_control_panel.async_arm_away(
             self._pulse_connection, force_arm=force_arm
         )
 
     async def async_disarm(self) -> bool:
         """Disarm system async."""
-        if self.alarm_control_panel is None:
-            raise RuntimeError("Cannot disarm system, no control panels exist")
         return await self.alarm_control_panel.async_disarm(self._pulse_connection)
 
     @property
