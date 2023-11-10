@@ -6,6 +6,7 @@ from warnings import warn
 
 from aiohttp import ClientSession
 
+from typeguard import typechecked
 from .const import (
     ADT_DEFAULT_HTTP_USER_AGENT,
     ADT_DEFAULT_KEEPALIVE_INTERVAL,
@@ -42,6 +43,7 @@ class PyADTPulseProperties:
     )
 
     @staticmethod
+    @typechecked
     def _check_keepalive_interval(keepalive_interval: int) -> None:
         if keepalive_interval > ADT_MAX_KEEPALIVE_INTERVAL or keepalive_interval <= 0:
             raise ValueError(
@@ -50,6 +52,7 @@ class PyADTPulseProperties:
             )
 
     @staticmethod
+    @typechecked
     def _check_relogin_interval(relogin_interval: int) -> None:
         if relogin_interval < ADT_MIN_RELOGIN_INTERVAL:
             raise ValueError(
@@ -57,6 +60,7 @@ class PyADTPulseProperties:
                 f"greater than {ADT_MIN_RELOGIN_INTERVAL}"
             )
 
+    @typechecked
     def __init__(
         self,
         username: str,
@@ -140,6 +144,7 @@ class PyADTPulseProperties:
         return self._pulse_connection.service_host
 
     @service_host.setter
+    @typechecked
     def service_host(self, host: str) -> None:
         """Override the Pulse host (i.e. to use portal-ca.adpulse.com).
 
@@ -185,6 +190,7 @@ class PyADTPulseProperties:
             return self._relogin_interval
 
     @relogin_interval.setter
+    @typechecked
     def relogin_interval(self, interval: int | None) -> None:
         """Set re-login interval.
 
@@ -215,6 +221,7 @@ class PyADTPulseProperties:
             return self._keepalive_interval
 
     @keepalive_interval.setter
+    @typechecked
     def keepalive_interval(self, interval: int | None) -> None:
         """Set the keepalive interval in minutes.
 
@@ -235,6 +242,7 @@ class PyADTPulseProperties:
             return self._detailed_debug_logging
 
     @detailed_debug_logging.setter
+    @typechecked
     def detailed_debug_logging(self, value: bool) -> None:
         """Set detailed debug logging flag."""
         with self._pp_attribute_lock:

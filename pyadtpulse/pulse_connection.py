@@ -9,6 +9,7 @@ from time import time
 
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
+from typeguard import typechecked
 from yarl import URL
 
 from .const import (
@@ -39,6 +40,7 @@ class ADTPulseConnection(PulseQueryManager):
     )
 
     @staticmethod
+    @typechecked
     def check_login_parameters(username: str, password: str, fingerprint: str) -> None:
         """Check if login parameters are valid.
 
@@ -54,6 +56,7 @@ class ADTPulseConnection(PulseQueryManager):
         if fingerprint is None or fingerprint == "":
             raise ValueError("Fingerprint is required")
 
+    @typechecked
     def __init__(
         self,
         host: str,
@@ -86,10 +89,12 @@ class ADTPulseConnection(PulseQueryManager):
             return self._last_login_time
 
     @last_login_time.setter
+    @typechecked
     def last_login_time(self, login_time: int) -> None:
         with self._pc_attribute_lock:
             self._last_login_time = login_time
 
+    @typechecked
     async def async_do_login_query(
         self, username: str, password: str, fingerprint: str, timeout: int = 30
     ) -> BeautifulSoup | None:
@@ -204,6 +209,7 @@ class ADTPulseConnection(PulseQueryManager):
         self.last_login_time = int(time())
         return soup
 
+    @typechecked
     async def async_do_logout_query(self, site_id: str | None) -> None:
         """Performs a logout query to the ADT Pulse site."""
         params = {}

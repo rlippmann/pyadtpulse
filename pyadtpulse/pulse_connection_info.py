@@ -1,8 +1,8 @@
 """Pulse connection info."""
 from asyncio import AbstractEventLoop
-
 from aiohttp import ClientSession
 
+from typeguard import typechecked
 from .const import API_HOST_CA, DEFAULT_API_HOST
 from .util import set_debug_lock
 
@@ -21,6 +21,7 @@ class PulseConnectionInfo:
     )
 
     @staticmethod
+    @typechecked
     def check_service_host(service_host: str) -> None:
         """Check if service host is valid."""
         if service_host is None or service_host == "":
@@ -68,6 +69,7 @@ class PulseConnectionInfo:
             return self._api_host
 
     @service_host.setter
+    @typechecked
     def service_host(self, host: str):
         """Set the service host."""
         self.check_service_host(host)
@@ -81,6 +83,7 @@ class PulseConnectionInfo:
             return self._detailed_debug_logging
 
     @detailed_debug_logging.setter
+    @typechecked
     def detailed_debug_logging(self, value: bool):
         """Set the detailed debug logging flag."""
         with self._pci_attribute_lock:
@@ -93,11 +96,13 @@ class PulseConnectionInfo:
             return self._debug_locks
 
     @debug_locks.setter
+    @typechecked
     def debug_locks(self, value: bool):
         """Set the debug locks flag."""
         with self._pci_attribute_lock:
             self._debug_locks = value
 
+    @typechecked
     def check_sync(self, message: str) -> AbstractEventLoop:
         """Checks if sync login was performed.
 
@@ -115,6 +120,7 @@ class PulseConnectionInfo:
             return self._loop
 
     @loop.setter
+    @typechecked
     def loop(self, loop: AbstractEventLoop | None):
         """Set the event loop."""
         with self._pci_attribute_lock:

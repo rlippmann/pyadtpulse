@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TypedDict
 
+from typeguard import typechecked
+
 ADT_NAME_TO_DEFAULT_TAGS = {
     "Door": ("sensor", "doorWindow"),
     "Window": ("sensor", "doorWindow"),
@@ -112,6 +114,7 @@ class ADTPulseZones(UserDict):
             value.name = "Sensor for Zone " + str(key)
         super().__setitem__(key, value)
 
+    @typechecked
     def update_status(self, key: int, status: str) -> None:
         """Update zone status.
 
@@ -123,6 +126,7 @@ class ADTPulseZones(UserDict):
         temp.status = status
         self.__setitem__(key, temp)
 
+    @typechecked
     def update_state(self, key: int, state: str) -> None:
         """Update zone state.
 
@@ -134,6 +138,7 @@ class ADTPulseZones(UserDict):
         temp.state = state
         self.__setitem__(key, temp)
 
+    @typechecked
     def update_last_activity_timestamp(self, key: int, dt: datetime) -> None:
         """Update timestamp.
 
@@ -145,6 +150,7 @@ class ADTPulseZones(UserDict):
         temp.last_activity_timestamp = int(dt.timestamp())
         self.__setitem__(key, temp)
 
+    @typechecked
     def update_device_info(
         self,
         key: int,
@@ -193,6 +199,7 @@ class ADTPulseZones(UserDict):
             )
         return result
 
+    @typechecked
     def update_zone_attributes(self, dev_attr: dict[str, str]) -> None:
         """Update zone attributes."""
         d_name = dev_attr.get("name", "Unknown")

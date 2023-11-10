@@ -8,6 +8,7 @@ from random import randint
 
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
+from typeguard import typechecked
 from yarl import URL
 
 from .alarm_panel import ADT_ALARM_UNKNOWN
@@ -36,6 +37,7 @@ class PyADTPulseAsync(PyADTPulseProperties):
 
     __slots__ = ("_sync_task", "_timeout_task", "_pa_attribute_lock")
 
+    @typechecked
     def __init__(
         self,
         username: str,

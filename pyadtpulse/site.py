@@ -7,8 +7,8 @@ from threading import RLock
 from time import time
 from warnings import warn
 
-# import dateparser
 from bs4 import BeautifulSoup, ResultSet
+from typeguard import typechecked
 
 from .alarm_panel import ADTPulseAlarmPanel
 from .const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_SYSTEM_URI
@@ -43,6 +43,7 @@ class ADTPulseSite:
         "_gateway",
     )
 
+    @typechecked
     def __init__(self, pulse_connection: ADTPulseConnection, site_id: str, name: str):
         """Initialize.
 
@@ -105,12 +106,14 @@ class ADTPulseSite:
         """
         return self._site_lock
 
+    @typechecked
     def arm_home(self, force_arm: bool = False) -> bool:
         """Arm system home."""
         return self.alarm_control_panel.arm_home(
             self._pulse_connection, force_arm=force_arm
         )
 
+    @typechecked
     def arm_away(self, force_arm: bool = False) -> bool:
         """Arm system away."""
         return self.alarm_control_panel.arm_away(
@@ -121,12 +124,14 @@ class ADTPulseSite:
         """Disarm system."""
         return self.alarm_control_panel.disarm(self._pulse_connection)
 
+    @typechecked
     async def async_arm_home(self, force_arm: bool = False) -> bool:
         """Arm system home async."""
         return await self.alarm_control_panel.async_arm_home(
             self._pulse_connection, force_arm=force_arm
         )
 
+    @typechecked
     async def async_arm_away(self, force_arm: bool = False) -> bool:
         """Arm system away async."""
         return await self.alarm_control_panel.async_arm_away(
@@ -244,6 +249,7 @@ class ADTPulseSite:
             result.update({identity_text: value})
         return result
 
+    @typechecked
     async def set_device(self, device_id: str) -> None:
         """
         Sets the device attributes for the given device ID.
@@ -265,6 +271,7 @@ class ADTPulseSite:
         else:
             LOG.debug("Zone %s is not an integer, skipping", device_id)
 
+    @typechecked
     async def fetch_devices(self, soup: BeautifulSoup | None) -> bool:
         """
         Fetches the devices from the given BeautifulSoup object and updates

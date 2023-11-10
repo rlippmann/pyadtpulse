@@ -15,6 +15,7 @@ from aiohttp import (
     ClientSession,
 )
 from bs4 import BeautifulSoup
+from typeguard import typechecked
 from yarl import URL
 
 from .const import (
@@ -51,11 +52,13 @@ class PulseQueryManager(PulseConnectionInfo):
     )
 
     @staticmethod
+    @typechecked
     def _get_http_status_description(status_code: int) -> str:
         """Get HTTP status description."""
         status = HTTPStatus(status_code)
         return status.description
 
+    @typechecked
     def __init__(
         self,
         host: str,
@@ -80,6 +83,7 @@ class PulseQueryManager(PulseConnectionInfo):
             return self._retry_after
 
     @retry_after.setter
+    @typechecked
     def retry_after(self, seconds: int) -> None:
         """Set time after which HTTP requests can be retried.
 
@@ -97,11 +101,13 @@ class PulseQueryManager(PulseConnectionInfo):
             return self._connection_failure_reason
 
     @connection_failure_reason.setter
+    @typechecked
     def connection_failure_reason(self, reason: ConnectionFailureReason) -> None:
         """Set the connection failure reason."""
         with self._pcm_attribute_lock:
             self._connection_failure_reason = reason
 
+    @typechecked
     def _compute_retry_after(self, code: int, retry_after: str) -> None:
         """
         Check the "Retry-After" header in the response and set retry_after property
@@ -136,6 +142,7 @@ class PulseQueryManager(PulseConnectionInfo):
             fail_reason = ConnectionFailureReason.UNKNOWN
         self._connection_failure_reason = fail_reason
 
+    @typechecked
     async def async_query(
         self,
         uri: str,
@@ -289,6 +296,7 @@ class PulseQueryManager(PulseConnectionInfo):
 
         return make_soup(code, response, url, level, error_message)
 
+    @typechecked
     def make_url(self, uri: str) -> str:
         """Create a URL to service host from a URI.
 
