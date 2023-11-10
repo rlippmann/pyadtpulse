@@ -1,5 +1,5 @@
 """Constants for pyadtpulse."""
-__version__ = "1.1.4b2"
+__version__ = "1.1.4b3"
 
 from enum import Enum
 from http import HTTPStatus
