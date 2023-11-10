@@ -56,8 +56,8 @@ class PulseConnectionInfo:
     def __del__(self):
         """Destructor for ADTPulseConnection."""
         if (
-            self._allocated_session
-            and self._session is not None
+            getattr(self, "_allocated_session", False)
+            and getattr(self, "_session", None) is not None
             and not self._session.closed
         ):
             self._session.detach()
