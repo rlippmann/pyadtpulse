@@ -934,6 +934,20 @@ pytest = ">=5.0"
 dev = ["pre-commit", "pytest-asyncio", "tox"]
 
 [[package]]
+name = "pytest-timeout"
+version = "2.2.0"
+description = "pytest plugin to abort hanging tests"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "pytest-timeout-2.2.0.tar.gz", hash = "sha256:3b0b95dabf3cb50bac9ef5ca912fa0cfc286526af17afc806824df20c2f72c90"},
+    {file = "pytest_timeout-2.2.0-py3-none-any.whl", hash = "sha256:bde531e096466f49398a59f2dde76fa78429a09a12411466f88a07213e220de2"},
+]
+
+[package.dependencies]
+pytest = ">=5.0.0"
+
+[[package]]
 name = "pyupgrade"
 version = "3.15.0"
 description = "A tool to automatically upgrade syntax for newer versions."
@@ -1339,4 +1353,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "d31ea2aff8db346b6d75be17432c3de96a49c5785c1e032d63b6e64eaa319c1a"
+content-hash = "7a395cd6f3b0d9e93b1622595676109f47a1ce306aa86f62322e027da7e38796"

@@ -58,6 +58,20 @@ class PulseQueryManager(PulseConnectionInfo):
         status = HTTPStatus(status_code)
         return status.description
 
+    @staticmethod
+    def _get_api_version(response_path: str) -> str | None:
+        """Regex used to exctract the API version.
+
+        Use for testing.
+        """
+        version: str | None = None
+        if not response_path:
+            return None
+        m = search(f"{API_PREFIX}(.+)/[a-z]*/", response_path)
+        if m is not None:
+            version = m.group(1)
+        return version
+
     @typechecked
     def __init__(
         self,
@@ -331,16 +345,15 @@ class PulseQueryManager(PulseConnectionInfo):
                 ADT_DEFAULT_VERSION,
             )
             return
-        if response_path is not None:
-            m = search("/myhome/(.+)/[a-z]*/", response_path)
-            if m is not None:
-                self._api_version = m.group(1)
-                LOG.debug(
-                    "Discovered ADT Pulse version %s at %s",
-                    self._api_version,
-                    self.service_host,
-                )
-                return
+        version = self._get_api_version(response_path)
+        if version is not None:
+            self._api_version = version
+            LOG.debug(
+                "Discovered ADT Pulse version %s at %s",
+                self._api_version,
+                self.service_host,
+            )
+            return
 
         LOG.warning(
             "Couldn't auto-detect ADT Pulse version, defaulting to %s",
