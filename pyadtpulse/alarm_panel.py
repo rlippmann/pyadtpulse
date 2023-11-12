@@ -10,7 +10,7 @@ from time import time
 from bs4 import BeautifulSoup
 
 from .const import ADT_ARM_DISARM_URI
-from .pulse_connection import ADTPulseConnection
+from .pulse_connection import PulseConnection
 from .util import make_soup
 
 LOG = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ class ADTPulseAlarmPanel:
             return self._last_arm_disarm
 
     async def _arm(
-        self, connection: ADTPulseConnection, mode: str, force_arm: bool
+        self, connection: PulseConnection, mode: str, force_arm: bool
     ) -> bool:
         """Set arm status.
 
@@ -192,7 +192,7 @@ class ADTPulseAlarmPanel:
 
     def _sync_set_alarm_mode(
         self,
-        connection: ADTPulseConnection,
+        connection: PulseConnection,
         mode: str,
         force_arm: bool = False,
     ) -> bool:
@@ -204,7 +204,7 @@ class ADTPulseAlarmPanel:
             ),
         ).result()
 
-    def arm_away(self, connection: ADTPulseConnection, force_arm: bool = False) -> bool:
+    def arm_away(self, connection: PulseConnection, force_arm: bool = False) -> bool:
         """Arm the alarm in Away mode.
 
         Args:
@@ -215,7 +215,7 @@ class ADTPulseAlarmPanel:
         """
         return self._sync_set_alarm_mode(connection, ADT_ALARM_AWAY, force_arm)
 
-    def arm_home(self, connection: ADTPulseConnection, force_arm: bool = False) -> bool:
+    def arm_home(self, connection: PulseConnection, force_arm: bool = False) -> bool:
         """Arm the alarm in Home mode.
 
         Args:
@@ -226,7 +226,7 @@ class ADTPulseAlarmPanel:
         """
         return self._sync_set_alarm_mode(connection, ADT_ALARM_HOME, force_arm)
 
-    def disarm(self, connection: ADTPulseConnection) -> bool:
+    def disarm(self, connection: PulseConnection) -> bool:
         """Disarm the alarm.
 
         Returns:
@@ -235,7 +235,7 @@ class ADTPulseAlarmPanel:
         return self._sync_set_alarm_mode(connection, ADT_ALARM_OFF, False)
 
     async def async_arm_away(
-        self, connection: ADTPulseConnection, force_arm: bool = False
+        self, connection: PulseConnection, force_arm: bool = False
     ) -> bool:
         """Arm alarm away async.
 
@@ -248,7 +248,7 @@ class ADTPulseAlarmPanel:
         return await self._arm(connection, ADT_ALARM_AWAY, force_arm)
 
     async def async_arm_home(
-        self, connection: ADTPulseConnection, force_arm: bool = False
+        self, connection: PulseConnection, force_arm: bool = False
     ) -> bool:
         """Arm alarm home async.
 
@@ -259,7 +259,7 @@ class ADTPulseAlarmPanel:
         """
         return await self._arm(connection, ADT_ALARM_HOME, force_arm)
 
-    async def async_disarm(self, connection: ADTPulseConnection) -> bool:
+    async def async_disarm(self, connection: PulseConnection) -> bool:
         """Disarm alarm async.
 
         Returns:

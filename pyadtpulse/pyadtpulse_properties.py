@@ -1,22 +1,15 @@
 """PyADTPulse Properties."""
 import logging
 import asyncio
-import time
 from warnings import warn
-
-from aiohttp import ClientSession
 
 from typeguard import typechecked
 from .const import (
-    ADT_DEFAULT_HTTP_USER_AGENT,
     ADT_DEFAULT_KEEPALIVE_INTERVAL,
     ADT_DEFAULT_RELOGIN_INTERVAL,
     ADT_MAX_KEEPALIVE_INTERVAL,
     ADT_MIN_RELOGIN_INTERVAL,
-    DEFAULT_API_HOST,
-    ConnectionFailureReason,
 )
-from .pulse_connection import ADTPulseConnection
 from .site import ADTPulseSite
 from .util import set_debug_lock
 
@@ -27,19 +20,14 @@ class PyADTPulseProperties:
     """PyADTPulse Properties."""
 
     __slots__ = (
-        "_pulse_connection",
-        "_authenticated",
         "_updates_exist",
         "_pp_attribute_lock",
-        "_site",
-        "_username",
-        "_password",
-        "_fingerprint",
         "_login_exception",
         "_relogin_interval",
         "_keepalive_interval",
         "_update_succeded",
         "_detailed_debug_logging",
+        "_site",
     )
 
     @staticmethod
@@ -63,47 +51,17 @@ class PyADTPulseProperties:
     @typechecked
     def __init__(
         self,
-        username: str,
-        password: str,
-        fingerprint: str,
-        service_host: str = DEFAULT_API_HOST,
-        user_agent=ADT_DEFAULT_HTTP_USER_AGENT["User-Agent"],
-        websession: ClientSession | None = None,
-        debug_locks: bool = False,
         keepalive_interval: int = ADT_DEFAULT_KEEPALIVE_INTERVAL,
         relogin_interval: int = ADT_DEFAULT_RELOGIN_INTERVAL,
         detailed_debug_logging: bool = False,
+        debug_locks: bool = False,
     ) -> None:
         """Create a PyADTPulse properties object.
         Args:
-        username (str): Username.
-        password (str): Password.
-        fingerprint (str): 2FA fingerprint.
-        service_host (str, optional): host prefix to use
-                     i.e. https://portal.adtpulse.com or
-                          https://portal-ca.adtpulse.com
-        user_agent (str, optional): User Agent.
-                     Defaults to ADT_DEFAULT_HTTP_HEADERS["User-Agent"].
-        websession (ClientSession, optional): an initialized
-                    aiohttp.ClientSession to use, defaults to None
-        debug_locks: (bool, optional): use debugging locks
-                    Defaults to False
-        keepalive_interval (int, optional): number of minutes between
-                    keepalive checks, defaults to ADT_DEFAULT_KEEPALIVE_INTERVAL,
-                    maxiumum is ADT_MAX_KEEPALIVE_INTERVAL
-        relogin_interval (int, optional): number of minutes between relogin checks
-                    defaults to ADT_DEFAULT_RELOGIN_INTERVAL,
-                    minimum is ADT_MIN_RELOGIN_INTERVAL
-        detailed_debug_logging (bool, optional): enable detailed debug logging
+        pulse_authentication_properties (PulseAuthenticationProperties):
+            an instance of PulseAuthenticationProperties
+        pulse_connection_properties (PulseConnectionProperties):
         """
-        self._init_login_info(username, password, fingerprint)
-        self._pulse_connection = ADTPulseConnection(
-            service_host,
-            session=websession,
-            user_agent=user_agent,
-            debug_locks=debug_locks,
-            detailed_debug_logging=detailed_debug_logging,
-        )
         # FIXME use thread event/condition, regular condition?
         # defer initialization to make sure we have an event loop
         self._login_exception: BaseException | None = None
@@ -119,64 +77,6 @@ class PyADTPulseProperties:
         self.relogin_interval = relogin_interval
         self._detailed_debug_logging = detailed_debug_logging
         self._update_succeded = True
-
-    def __repr__(self) -> str:
-        """Object representation."""
-        return f"<{self.__class__.__name__}: {self._username}>"
-
-    def _init_login_info(self, username: str, password: str, fingerprint: str) -> None:
-        """Initialize login info.
-
-        Raises:
-            ValueError: if login parameters are not valid.
-        """
-        ADTPulseConnection.check_login_parameters(username, password, fingerprint)
-        self._username = username
-        self._password = password
-        self._fingerprint = fingerprint
-
-    @property
-    def service_host(self) -> str:
-        """Get the Pulse host.
-
-        Returns: (str): the ADT Pulse endpoint host
-        """
-        return self._pulse_connection.service_host
-
-    @service_host.setter
-    @typechecked
-    def service_host(self, host: str) -> None:
-        """Override the Pulse host (i.e. to use portal-ca.adpulse.com).
-
-        Args:
-            host (str): name of Pulse endpoint host
-        """
-        ADTPulseConnection.check_service_host(host)
-        with self._pp_attribute_lock:
-            self._pulse_connection.service_host = host
-
-    def set_service_host(self, host: str) -> None:
-        """Backward compatibility for service host property setter."""
-        self.service_host = host
-
-    @property
-    def username(self) -> str:
-        """Get username.
-
-        Returns:
-            str: the username
-        """
-        with self._pp_attribute_lock:
-            return self._username
-
-    @property
-    def version(self) -> str:
-        """Get the ADT Pulse site version.
-
-        Returns:
-            str: a string containing the version
-        """
-        return self._pulse_connection.api_version
 
     @property
     def relogin_interval(self) -> int:
@@ -236,25 +136,6 @@ class PyADTPulseProperties:
             LOG.debug("keepalive interval set to %d", self._keepalive_interval)
 
     @property
-    def detailed_debug_logging(self) -> bool:
-        """Get the detailed debug logging flag."""
-        with self._pp_attribute_lock:
-            return self._detailed_debug_logging
-
-    @detailed_debug_logging.setter
-    @typechecked
-    def detailed_debug_logging(self, value: bool) -> None:
-        """Set detailed debug logging flag."""
-        with self._pp_attribute_lock:
-            self._detailed_debug_logging = value
-        self._pulse_connection.detailed_debug_logging = value
-
-    @property
-    def connection_failure_reason(self) -> ConnectionFailureReason:
-        """Get the connection failure reason."""
-        return self._pulse_connection.connection_failure_reason
-
-    @property
     def sites(self) -> list[ADTPulseSite]:
         """Return all sites for this ADT Pulse account."""
         warn(
@@ -279,21 +160,25 @@ class PyADTPulseProperties:
                 )
             return self._site
 
-    @property
-    def is_connected(self) -> bool:
-        """Check if connected to ADT Pulse.
-
-        Returns:
-            bool: True if connected
-        """
-        return (
-            self._pulse_connection.authenticated_flag.is_set()
-            and self._pulse_connection.retry_after < time.time()
-        )
-
-    def _set_update_status(self, value: bool) -> None:
+    def set_update_status(self, value: bool) -> None:
         """Sets update failed, sets updates_exist to notify wait_for_update."""
         with self._pp_attribute_lock:
             self._update_succeded = value
-            if self._updates_exist is not None and not self._updates_exist.is_set():
-                self._updates_exist.set()
+            self.updates_exist.set()
+
+    @property
+    def updates_exist(self) -> asyncio.locks.Event:
+        """Check if updates exist."""
+        with self._pp_attribute_lock:
+            return self._updates_exist
+        
+    def check_update_succeeded(self) -> bool:
+        """Check if update succeeded, clears the update event and
+        resets _update_succeeded.
+        """
+        with self._pp_attribute_lock:
+            old_update_succeded = self._update_succeded
+            self._update_succeded = True
+            if self.updates_exist.is_set():
+                self.updates_exist.clear()
+            return old_update_succeded

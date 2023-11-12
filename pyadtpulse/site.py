@@ -13,7 +13,7 @@ from typeguard import typechecked
 from .alarm_panel import ADTPulseAlarmPanel
 from .const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_SYSTEM_URI
 from .gateway import ADTPulseGateway
-from .pulse_connection import ADTPulseConnection
+from .pulse_connection import PulseConnection
 from .util import (
     DebugRLock,
     make_soup,
@@ -44,7 +44,7 @@ class ADTPulseSite:
     )
 
     @typechecked
-    def __init__(self, pulse_connection: ADTPulseConnection, site_id: str, name: str):
+    def __init__(self, pulse_connection: PulseConnection, site_id: str, name: str):
         """Initialize.
 
         Args:

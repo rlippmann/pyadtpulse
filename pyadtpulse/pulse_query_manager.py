@@ -1,10 +1,9 @@
 """Pulse Query Manager."""
 from logging import getLogger
-from asyncio import Event, current_task, sleep
+from asyncio import current_task, sleep
 from datetime import datetime
 from http import HTTPStatus
 from random import uniform
-from re import search
 from time import time
 
 from aiohttp import (
@@ -12,7 +11,6 @@ from aiohttp import (
     ClientConnectorError,
     ClientResponse,
     ClientResponseError,
-    ClientSession,
 )
 from bs4 import BeautifulSoup
 from typeguard import typechecked
@@ -23,10 +21,10 @@ from .const import (
     ADT_HTTP_BACKGROUND_URIS,
     ADT_ORB_URI,
     ADT_OTHER_HTTP_ACCEPT_HEADERS,
-    API_PREFIX,
     ConnectionFailureReason,
 )
-from .pulse_connection_info import PulseConnectionInfo
+from .pulse_connection_properties import PulseConnectionProperties
+from .pulse_connection_status import PulseConnectionStatus
 from .util import make_soup, set_debug_lock
 
 LOG = getLogger(__name__)
@@ -40,16 +38,10 @@ RETRY_LATER_ERRORS = {HTTPStatus.SERVICE_UNAVAILABLE, HTTPStatus.TOO_MANY_REQUES
 MAX_RETRIES = 3
 
 
-class PulseQueryManager(PulseConnectionInfo):
+class PulseQueryManager:
     """Pulse Query Manager."""
 
-    __slots__ = (
-        "_retry_after",
-        "_connection_failure_reason",
-        "_authenticated_flag",
-        "_api_version",
-        "_pcm_attribute_lock",
-    )
+    __slots__ = ("_pqm_attribute_lock", "_connection_properties", "_connection_status")
 
     @staticmethod
     @typechecked
@@ -58,68 +50,19 @@ class PulseQueryManager(PulseConnectionInfo):
         status = HTTPStatus(status_code)
         return status.description
 
-    @staticmethod
-    def _get_api_version(response_path: str) -> str | None:
-        """Regex used to exctract the API version.
-
-        Use for testing.
-        """
-        version: str | None = None
-        if not response_path:
-            return None
-        m = search(f"{API_PREFIX}(.+)/[a-z]*/", response_path)
-        if m is not None:
-            version = m.group(1)
-        return version
-
     @typechecked
     def __init__(
         self,
-        host: str,
-        session: ClientSession | None = None,
-        detailed_debug_logging: bool = False,
+        connection_status: PulseConnectionStatus,
+        connection_properties: PulseConnectionProperties,
         debug_locks: bool = False,
     ) -> None:
         """Initialize Pulse Query Manager."""
-        self._pcm_attribute_lock = set_debug_lock(
-            debug_locks, "pyadtpulse.pcm_attribute_lock"
+        self._pqm_attribute_lock = set_debug_lock(
+            debug_locks, "pyadtpulse.pqm_attribute_lock"
         )
-        self._retry_after = int(time())
-        self._connection_failure_reason = ConnectionFailureReason.NO_FAILURE
-        self._authenticated_flag = Event()
-        self._api_version = ADT_DEFAULT_VERSION
-        super().__init__(host, session, detailed_debug_logging, debug_locks)
-
-    @property
-    def retry_after(self) -> int:
-        """Get the number of seconds to wait before retrying HTTP requests."""
-        with self._pcm_attribute_lock:
-            return self._retry_after
-
-    @retry_after.setter
-    @typechecked
-    def retry_after(self, seconds: int) -> None:
-        """Set time after which HTTP requests can be retried.
-
-        Raises: ValueError if seconds is less than current time.
-        """
-        if seconds < time():
-            raise ValueError("retry_after cannot be less than current time")
-        with self._pcm_attribute_lock:
-            self._retry_after = seconds
-
-    @property
-    def connection_failure_reason(self) -> ConnectionFailureReason:
-        """Get the connection failure reason."""
-        with self._pcm_attribute_lock:
-            return self._connection_failure_reason
-
-    @connection_failure_reason.setter
-    @typechecked
-    def connection_failure_reason(self, reason: ConnectionFailureReason) -> None:
-        """Set the connection failure reason."""
-        with self._pcm_attribute_lock:
-            self._connection_failure_reason = reason
+        self._connection_status = connection_status
+        self._connection_properties = connection_properties
 
     @typechecked
     def _compute_retry_after(self, code: int, retry_after: str) -> None:
@@ -149,12 +92,12 @@ class PulseQueryManager(PulseConnectionInfo):
             retval,
             self._get_http_status_description(code),
         )
-        self.retry_after = int(time()) + retval
+        self._connection_status.retry_after = int(time()) + retval
         try:
             fail_reason = ConnectionFailureReason(code)
         except ValueError:
             fail_reason = ConnectionFailureReason.UNKNOWN
-        self._connection_failure_reason = fail_reason
+        self._connection_status.connection_failure_reason = fail_reason
 
     @typechecked
     async def async_query(
@@ -205,27 +148,30 @@ class PulseQueryManager(PulseConnectionInfo):
         if method not in ("GET", "POST"):
             raise ValueError("method must be GET or POST")
         current_time = time()
-        if self.retry_after > current_time:
+        if self._connection_status.retry_after > current_time:
             LOG.debug(
                 "Retry after set, query %s for %s waiting until %s",
                 method,
                 uri,
-                datetime.fromtimestamp(self.retry_after),
+                datetime.fromtimestamp(self._connection_status.retry_after),
             )
-            await sleep(self.retry_after - current_time)
+            await sleep(self._connection_status.retry_after - current_time)
 
-        if requires_authentication and not self._authenticated_flag.is_set():
+        if (
+            requires_authentication
+            and not self._connection_status.authenticated_flag.is_set()
+        ):
             LOG.info("%s for %s waiting for authenticated flag to be set", method, uri)
-            await self._authenticated_flag.wait()
+            await self._connection_status.authenticated_flag.wait()
         else:
-            if self._api_version == ADT_DEFAULT_VERSION:
+            if self._connection_properties.api_version == ADT_DEFAULT_VERSION:
                 await self.async_fetch_version()
 
-        url = self.make_url(uri)
+        url = self._connection_properties.make_url(uri)
         headers = extra_headers if extra_headers is not None else {}
         if uri in ADT_HTTP_BACKGROUND_URIS:
             headers.setdefault("Accept", ADT_OTHER_HTTP_ACCEPT_HEADERS["Accept"])
-        if self._detailed_debug_logging:
+        if self._connection_properties.detailed_debug_logging:
             LOG.debug(
                 "Attempting %s %s params=%s timeout=%d",
                 method,
@@ -242,7 +188,7 @@ class PulseQueryManager(PulseConnectionInfo):
         )
         while retry < MAX_RETRIES:
             try:
-                async with self._session.request(
+                async with self._connection_properties.session.request(
                     method,
                     url,
                     headers=extra_headers,
@@ -310,28 +256,16 @@ class PulseQueryManager(PulseConnectionInfo):
 
         return make_soup(code, response, url, level, error_message)
 
-    @typechecked
-    def make_url(self, uri: str) -> str:
-        """Create a URL to service host from a URI.
-
-        Args:
-            uri (str): the URI to convert
-
-        Returns:
-            str: the converted string
-        """
-        return f"{self._api_host}{API_PREFIX}{self._api_version}{uri}"
-
     async def async_fetch_version(self) -> None:
         """Fetch ADT Pulse version."""
         response_path: str | None = None
         response_code = HTTPStatus.OK.value
-        if self._api_version != ADT_DEFAULT_VERSION:
+        if self._connection_properties.api_version != ADT_DEFAULT_VERSION:
             return
 
-        signin_url = f"{self.service_host}"
+        signin_url = f"{self._connection_properties.service_host}"
         try:
-            async with self._session.get(
+            async with self._connection_properties.session.get(
                 signin_url,
             ) as response:
                 response_code = response.status
@@ -345,13 +279,13 @@ class PulseQueryManager(PulseConnectionInfo):
                 ADT_DEFAULT_VERSION,
             )
             return
-        version = self._get_api_version(response_path)
+        version = self._connection_properties.get_api_version(response_path)
         if version is not None:
-            self._api_version = version
+            self._connection_properties.api_version = version
             LOG.debug(
                 "Discovered ADT Pulse version %s at %s",
-                self._api_version,
-                self.service_host,
+                self._connection_properties.api_version,
+                self._connection_properties.service_host,
             )
             return
 
@@ -359,15 +293,3 @@ class PulseQueryManager(PulseConnectionInfo):
             "Couldn't auto-detect ADT Pulse version, defaulting to %s",
             ADT_DEFAULT_VERSION,
         )
-
-    @property
-    def authenticated_flag(self) -> Event:
-        """Get the authenticated flag."""
-        with self._pcm_attribute_lock:
-            return self._authenticated_flag
-
-    @property
-    def api_version(self) -> str:
-        """Get the API version."""
-        with self._pcm_attribute_lock:
-            return self._api_version
