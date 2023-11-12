@@ -1,8 +1,9 @@
 """Pulse Connection Status."""
-from time import time
 from asyncio import Event
+from time import time
 
 from typeguard import typechecked
+
 from .const import ConnectionFailureReason
 from .util import set_debug_lock
 

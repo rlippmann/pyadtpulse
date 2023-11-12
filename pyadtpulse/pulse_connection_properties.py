@@ -1,17 +1,18 @@
 """Pulse connection info."""
-from re import search
 from asyncio import AbstractEventLoop
-from aiohttp import ClientSession
+from re import search
 
+from aiohttp import ClientSession
 from typeguard import typechecked
+
 from .const import (
-    API_HOST_CA,
-    DEFAULT_API_HOST,
-    ADT_DEFAULT_VERSION,
-    API_PREFIX,
     ADT_DEFAULT_HTTP_ACCEPT_HEADERS,
     ADT_DEFAULT_HTTP_USER_AGENT,
     ADT_DEFAULT_SEC_FETCH_HEADERS,
+    ADT_DEFAULT_VERSION,
+    API_HOST_CA,
+    API_PREFIX,
+    DEFAULT_API_HOST,
 )
 from .util import set_debug_lock
 

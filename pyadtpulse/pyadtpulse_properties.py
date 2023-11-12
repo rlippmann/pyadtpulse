@@ -4,6 +4,7 @@ import asyncio
 from warnings import warn
 
 from typeguard import typechecked
+
 from .const import (
     ADT_DEFAULT_KEEPALIVE_INTERVAL,
     ADT_DEFAULT_RELOGIN_INTERVAL,
@@ -171,7 +172,7 @@ class PyADTPulseProperties:
         """Check if updates exist."""
         with self._pp_attribute_lock:
             return self._updates_exist
-        
+
     def check_update_succeeded(self) -> bool:
         """Check if update succeeded, clears the update event and
         resets _update_succeeded.

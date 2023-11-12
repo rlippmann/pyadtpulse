@@ -1,6 +1,8 @@
 """Pulse Authentication Properties."""
 from re import match
+
 from typeguard import typechecked
+
 from .util import set_debug_lock
 
 
@@ -16,17 +18,17 @@ class PulseAuthenticationProperties:
         "_site_id",
     )
 
-    @staticmethod 
+    @staticmethod
     def check_username(username: str) -> None:
         """Check if username is valid.
-        
+
         Raises ValueError if a login parameter is not valid."""
         if not username:
             raise ValueError("Username is mandatory")
         pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
         if not match(pattern, username):
             raise ValueError("Username must be an email address")
-        
+
     @staticmethod
     @typechecked
     def check_password(password: str) -> None:
@@ -36,7 +38,7 @@ class PulseAuthenticationProperties:
         """
         if not password:
             raise ValueError("Password is mandatory")
-        
+
     @staticmethod
     @typechecked
     def check_fingerprint(fingerprint: str) -> None:
@@ -118,7 +120,7 @@ class PulseAuthenticationProperties:
         self.check_fingerprint(fingerprint)
         with self._paa_attribute_lock:
             self._fingerprint = fingerprint
-            
+
     @property
     def site_id(self) -> str:
         """Get the site ID."""

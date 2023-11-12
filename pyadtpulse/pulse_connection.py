@@ -5,8 +5,8 @@ This is the main interface to the http functions to access ADT Pulse.
 
 import logging
 import re
-from time import time
 from asyncio import AbstractEventLoop
+from time import time
 
 from bs4 import BeautifulSoup
 from typeguard import typechecked
@@ -18,7 +18,6 @@ from .const import (
     ADT_SUMMARY_URI,
     ConnectionFailureReason,
 )
-
 from .pulse_authentication_properties import PulseAuthenticationProperties
 from .pulse_connection_properties import PulseConnectionProperties
 from .pulse_connection_status import PulseConnectionStatus
@@ -34,11 +33,7 @@ SESSION_COOKIES = {"X-mobile-browser": "false", "ICLocal": "en_US"}
 class PulseConnection(PulseQueryManager):
     """ADT Pulse connection related attributes."""
 
-    __slots__ = (
-        "_pc_attribute_lock",
-        "_authentication_properties",
-        "_debug_locks"
-    )
+    __slots__ = ("_pc_attribute_lock", "_authentication_properties", "_debug_locks")
 
     @typechecked
     def __init__(
@@ -223,9 +218,8 @@ class PulseConnection(PulseQueryManager):
     def check_sync(self, message: str) -> AbstractEventLoop:
         """Convenience method to check if running from sync context."""
         return self._connection_properties.check_sync(message)
-    
+
     @property
     def debug_locks(self):
         """Return debug locks."""
         return self._debug_locks
-    

@@ -1,13 +1,13 @@
 """conftest.py"""
-import sys
-import os
 import asyncio
+import os
+import sys
+
 import aiohttp
-from yarl import URL
 import pytest
 from bs4 import BeautifulSoup
 from bs4.element import Comment
-
+from yarl import URL
 
 # Get the absolute path of the directory containing the conftest.py file
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -18,15 +18,13 @@ sys.path.insert(0, parent_dir)
 
 # pylint: disable=wrong-import-position
 from pyadtpulse.const import DEFAULT_API_HOST  # noqa: E402
-from pyadtpulse.pulse_query_manager import (  # noqa: E402
-    PulseQueryManager,
-)
+from pyadtpulse.pulse_query_manager import PulseQueryManager  # noqa: E402
 
 
 @pytest.fixture
 def remove_comments_and_javascript():
     def _remove_comments_and_javascript(html):
-        soup = BeautifulSoup(html, 'html.parser')
+        soup = BeautifulSoup(html, "html.parser")
 
         # Remove HTML comments
         comments = soup.find_all(text=lambda text: isinstance(text, Comment))
@@ -34,13 +32,14 @@ def remove_comments_and_javascript():
             comment.extract()
 
         # Remove <script> tags and their contents
-        script_tags = soup.find_all('script')
+        script_tags = soup.find_all("script")
         for script_tag in script_tags:
             script_tag.extract()
 
         return soup
 
     return _remove_comments_and_javascript
+
 
 @pytest.fixture
 def compare_html(remove_comments_and_javascript):
@@ -52,6 +51,7 @@ def compare_html(remove_comments_and_javascript):
 
     return _compare_html
 
+
 def make_sync_check(a: int, b: int) -> str:
     """Make a sync check string."""
     return "-".join([str(a), str(b), "0"])
@@ -62,7 +62,7 @@ def read_test_file(filename: str) -> str:
     """Read a test file."""
     subdirectory = os.path.join(current_dir, "html")
     path = os.path.join(subdirectory, filename)
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return f.read()
 
 

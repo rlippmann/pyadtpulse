@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from random import randint
 from warnings import warn
+
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
 from typeguard import typechecked
@@ -525,7 +526,7 @@ class PyADTPulseAsync:
                     "No sites have been retrieved, have you logged in yet?"
                 )
             return self._site
-        
+
     @property
     def is_connected(self) -> bool:
         """Convenience method to return whether ADT Pulse is connected."""
