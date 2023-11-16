@@ -4,12 +4,12 @@ import os
 from urllib import parse
 from datetime import datetime
 import re
-from typing import AsyncGenerator, Any, Generator
+from typing import AsyncGenerator, Any, Generator, Callable
 from unittest.mock import patch, AsyncMock
 from aiohttp import web
 import pytest
 
-import aioresponses
+from aioresponses import aioresponses
 
 
 # Get the root directory of your project
@@ -17,7 +17,7 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 
 # Modify sys.path to include the project root
 sys.path.insert(0, project_root)
-test_file_dir = project_root.join("/tests/data_files")
+test_file_dir = os.path.join(project_root,"tests", "data_files")
 # pylint: disable=wrong-import-position
 # ruff: noqa: E402
 # flake8: noqa: E402
@@ -40,16 +40,20 @@ from pyadtpulse.util import remove_prefix
 
 
 @pytest.fixture
-def read_file(file_name: str) -> str:
+def read_file() -> Callable[[str], str]:
     """Fixture to read a file.
 
     Args:
         file_name (str): Name of the file to read
     """
-    file_path = os.path.join(test_file_dir, file_name)
-    with open(file_path, "r", encoding="utf-8") as file:
-        content = file.read()
-    return content
+
+    def _read_file(file_name: str) -> str:
+        file_path = os.path.join(test_file_dir, file_name)
+        with open(file_path, "r", encoding="utf-8") as file:
+            content = file.read()
+        return content
+
+    return _read_file
 
 
 @pytest.fixture(scope="session")
@@ -74,21 +78,21 @@ def patched_async_query_sleep() -> Generator[AsyncMock, Any, Any]:
 
 
 @pytest.fixture
-def get_test_api_version() -> str:
+def get_mocked_api_version() -> str:
     """Fixture to get the test API version."""
     return "26.0.0-32"
 
 
 @pytest.fixture
-def get_test_connection_properties() -> PulseConnectionProperties:
+def get_mocked_connection_properties() -> PulseConnectionProperties:
     """Fixture to get the test connection properties."""
     return PulseConnectionProperties(DEFAULT_API_HOST)
 
 
 @pytest.fixture
-def test_mapped_static_responses() -> dict[str, str]:
+def get_mocked_mapped_static_responses() -> dict[str, str]:
     """Fixture to get the test mapped responses."""
-    cp = get_test_connection_properties()
+    cp = get_mocked_connection_properties()
     return {
         cp.make_url("/"): "index.html",
         cp.make_url(ADT_LOGIN_URI): "signin.html",
@@ -100,7 +104,8 @@ def test_mapped_static_responses() -> dict[str, str]:
 
 
 def extract_ids_from_data_directory() -> list[str]:
-    id_pattern = re.compile(r"device-(\d{2})\.html")
+    """Extract the device ids all the device files in the data directory."""
+    id_pattern = re.compile(r"device-(\d{1,})\.html")
     ids = set()
     for file_name in os.listdir(test_file_dir):
         match = id_pattern.match(file_name)
@@ -110,15 +115,12 @@ def extract_ids_from_data_directory() -> list[str]:
 
 
 @pytest.fixture
-def test_mapped_server_responses(
-    test_mapped_static_responses, read_file
-) -> Generator[aioresponses.aioresponses, Any, None]:
+def mocked_server_responses():
     """Fixture to get the test mapped responses."""
-    static_responses = test_mapped_static_responses
-    responses = aioresponses.aioresponses()
-    with responses:
-        for url, response in test_mapped_static_responses.items():
-            responses.add(url, "GET", read_file(response))
+    static_responses = get_mocked_mapped_static_responses()
+    with aioresponses() as responses:
+        for url, file_name in static_responses.items():
+            responses.add(url, "GET", body=read_file()(file_name))
             # login/logout
             responses.add(
                 static_responses[ADT_LOGIN_URI],
@@ -135,8 +137,14 @@ def test_mapped_server_responses(
                 responses.add(
                     f"{ADT_DEVICE_URI}?id={device_id}",
                     "GET",
-                    read_file(f"device-{device_id}.html"),
+                    body=read_file()(f"device-{device_id}.html"),
                 )
+            # default sync check response
+            responses.add(
+                get_mocked_connection_properties().make_url(ADT_SYNC_CHECK_URI),
+                "GET",
+                body="235632-234545-0",
+            )
         yield responses
 
 
@@ -150,13 +158,13 @@ def patched_sync_task_sleep() -> Generator[AsyncMock, Any, Any]:
         yield mock
 
 
-@pytest.fixture
-@pytest.mark.asyncio
-class PulseMockedWebServer(web.Application):
-    """Mocked ADT Pulse Web Server"""
+
+class PulseMockedWebServer():
+    """Mocked Pulse Web Server."""
 
     def __init__(self, pulse_properties: PulseConnectionProperties):
-        """Initialize the PulseMockedWebServer"""
+        """Initialize the PulseMockedWebServer."""
+        self.app = web.Application()
         self.logged_in = False
         self.status_code = 200
         self.retry_after_header: str | None = None
@@ -173,13 +181,13 @@ class PulseMockedWebServer(web.Application):
             self._make_local_prefix(ADT_SYSTEM_SETTINGS): ["system_settings.html"],
         }
         super().__init__()
-        self.router.add_route("*", "/{path_info:.*}", self.handler)
+        self.app.router.add_route("*", "/{path_info:.*}", self.handler)
 
     def _make_local_prefix(self, uri: str) -> str:
         return remove_prefix(self.pcp.make_url(uri), "https://")
 
     async def handler(self, request: web.Request) -> web.Response | web.FileResponse:
-        """Handler for the PulseMockedWebServer"""
+        """Handler for the PulseMockedWebServer."""
         path = request.path
 
         # Check if there is a query parameter for retry_after
@@ -284,3 +292,11 @@ class PulseMockedWebServer(web.Application):
         if len(files_to_serve) > 1:
             file_to_serve = self.uri_mapping[path].pop(1)
         return serve_file(file_to_serve)
+    
+@pytest.fixture
+@pytest.mark.asyncio
+async def mocked_pulse_server()  -> PulseMockedWebServer:
+    """Fixture to create a mocked Pulse server."""
+    pulse_properties = get_mocked_connection_properties()
+    m = PulseMockedWebServer(pulse_properties)
+    return m
