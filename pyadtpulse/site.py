@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup, ResultSet
 from typeguard import typechecked
 
 from .alarm_panel import ADTPulseAlarmPanel
-from .const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_SYSTEM_URI
+from .const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_GATEWAY_URI, ADT_SYSTEM_URI
 from .gateway import ADTPulseGateway
 from .pulse_connection import PulseConnection
 from .util import (
@@ -215,7 +215,7 @@ class ADTPulseSite:
         result: dict[str, str] = {}
         if device_id == ADT_GATEWAY_STRING:
             device_response = await self._pulse_connection.async_query(
-                "/system/gateway.jsp", timeout=10
+                ADT_GATEWAY_URI, timeout=10
             )
         else:
             device_response = await self._pulse_connection.async_query(

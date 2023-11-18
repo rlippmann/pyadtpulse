@@ -1,37 +1,38 @@
 """Pulse Test Configuration."""
-import sys
 import os
-from urllib import parse
-from datetime import datetime
 import re
-from typing import AsyncGenerator, Any, Generator, Callable
-from unittest.mock import patch, AsyncMock
-from aiohttp import web
-import pytest
+import sys
+from collections.abc import AsyncGenerator, Generator
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, patch
+from urllib import parse
 
+import pytest
+from aiohttp import web
 from aioresponses import aioresponses
 
-
 # Get the root directory of your project
-project_root = os.path.dirname(os.path.abspath(__file__))
+project_root = Path(__file__).resolve().parent
 
 # Modify sys.path to include the project root
-sys.path.insert(0, project_root)
-test_file_dir = os.path.join(project_root,"tests", "data_files")
+sys.path.insert(0, str(project_root))
+test_file_dir = project_root / "tests" / "data_files"
 # pylint: disable=wrong-import-position
 # ruff: noqa: E402
 # flake8: noqa: E402
 from pyadtpulse.const import (
-    DEFAULT_API_HOST,
+    ADT_DEVICE_URI,
+    ADT_GATEWAY_URI,
+    ADT_LOGIN_URI,
+    ADT_LOGOUT_URI,
+    ADT_ORB_URI,
     ADT_SUMMARY_URI,
     ADT_SYNC_CHECK_URI,
-    ADT_SYSTEM_URI,
-    ADT_LOGIN_URI,
-    ADT_ORB_URI,
-    ADT_ZONES_URI,
-    ADT_LOGOUT_URI,
     ADT_SYSTEM_SETTINGS,
-    ADT_DEVICE_URI,
+    ADT_SYSTEM_URI,
+    DEFAULT_API_HOST,
 )
 from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
 from pyadtpulse.pulse_connection_status import PulseConnectionStatus
@@ -40,7 +41,7 @@ from pyadtpulse.util import remove_prefix
 
 
 @pytest.fixture
-def read_file() -> Callable[[str], str]:
+def read_file():
     """Fixture to read a file.
 
     Args:
@@ -48,10 +49,8 @@ def read_file() -> Callable[[str], str]:
     """
 
     def _read_file(file_name: str) -> str:
-        file_path = os.path.join(test_file_dir, file_name)
-        with open(file_path, "r", encoding="utf-8") as file:
-            content = file.read()
-        return content
+        file_path = test_file_dir / file_name
+        return file_path.read_text(encoding="utf-8")
 
     return _read_file
 
@@ -77,7 +76,7 @@ def patched_async_query_sleep() -> Generator[AsyncMock, Any, Any]:
         yield mock
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def get_mocked_api_version() -> str:
     """Fixture to get the test API version."""
     return "26.0.0-32"
@@ -90,22 +89,38 @@ def get_mocked_connection_properties() -> PulseConnectionProperties:
 
 
 @pytest.fixture
-def get_mocked_mapped_static_responses() -> dict[str, str]:
+def get_mocked_url(get_mocked_connection_properties):
+    def _get_mocked_url(path: str) -> str:
+        return get_mocked_connection_properties.make_url(path)
+
+    return _get_mocked_url
+
+
+@pytest.fixture
+def get_relative_mocked_url(get_mocked_connection_properties):
+    def _get_relative_mocked_url(path: str) -> str:
+        return remove_prefix(
+            get_mocked_connection_properties.make_url(path), DEFAULT_API_HOST
+        )
+
+    return _get_relative_mocked_url
+
+
+@pytest.fixture
+def get_mocked_mapped_static_responses(get_mocked_url) -> dict[str, str]:
     """Fixture to get the test mapped responses."""
-    cp = get_mocked_connection_properties()
     return {
-        cp.make_url("/"): "index.html",
-        cp.make_url(ADT_LOGIN_URI): "signin.html",
-        cp.make_url(ADT_LOGOUT_URI): "signout.html",
-        cp.make_url(ADT_SUMMARY_URI): "summary.html",
-        cp.make_url(ADT_SYSTEM_URI): "system.html",
-        cp.make_url(ADT_DEVICE_URI): "device.html",
+        get_mocked_url(ADT_LOGIN_URI): "signin.html",
+        get_mocked_url(ADT_SUMMARY_URI): "summary.html",
+        get_mocked_url(ADT_SYSTEM_URI): "system.html",
+        get_mocked_url(ADT_GATEWAY_URI): "gateway.html",
     }
 
 
+@pytest.fixture
 def extract_ids_from_data_directory() -> list[str]:
     """Extract the device ids all the device files in the data directory."""
-    id_pattern = re.compile(r"device-(\d{1,})\.html")
+    id_pattern = re.compile(r"device_(\d{1,})\.html")
     ids = set()
     for file_name in os.listdir(test_file_dir):
         match = id_pattern.match(file_name)
@@ -115,36 +130,67 @@ def extract_ids_from_data_directory() -> list[str]:
 
 
 @pytest.fixture
-def mocked_server_responses():
+def get_default_sync_check() -> str:
+    return "234532-456432-0"
+
+
+@pytest.fixture
+def mocked_server_responses(
+    get_mocked_mapped_static_responses: dict[str, str],
+    read_file,
+    get_mocked_url,
+    extract_ids_from_data_directory: list[str],
+) -> Generator[aioresponses, Any, None]:
     """Fixture to get the test mapped responses."""
-    static_responses = get_mocked_mapped_static_responses()
+    static_responses = get_mocked_mapped_static_responses
     with aioresponses() as responses:
         for url, file_name in static_responses.items():
-            responses.add(url, "GET", body=read_file()(file_name))
-            # login/logout
-            responses.add(
-                static_responses[ADT_LOGIN_URI],
-                status=web.HTTPFound.status_code,
-                headers={"Location": static_responses[ADT_SUMMARY_URI]},
+            responses.get(
+                url, body=read_file(file_name), content_type="text/html", repeat=True
             )
-            responses.add(
-                static_responses[ADT_LOGIN_URI],
-                status=web.HTTPFound.status_code,
-                headers={"Location": static_responses[ADT_LOGOUT_URI]},
-            )
+
             # device id rewriting
-            for device_id in extract_ids_from_data_directory():
-                responses.add(
-                    f"{ADT_DEVICE_URI}?id={device_id}",
-                    "GET",
-                    body=read_file()(f"device-{device_id}.html"),
-                )
-            # default sync check response
-            responses.add(
-                get_mocked_connection_properties().make_url(ADT_SYNC_CHECK_URI),
-                "GET",
-                body="235632-234545-0",
+        for device_id in extract_ids_from_data_directory:
+            responses.get(
+                f"{get_mocked_url(ADT_DEVICE_URI)}?id={device_id}",
+                body=read_file(f"device_{device_id}.html"),
+                content_type="text/html",
             )
+        # redirects
+        responses.get(
+            DEFAULT_API_HOST,
+            status=302,
+            headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
+            repeat=True,
+        )
+        responses.get(
+            f"{DEFAULT_API_HOST}/",
+            status=302,
+            headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
+            repeat=True,
+        )
+        responses.get(
+            f"{DEFAULT_API_HOST}/{ADT_LOGIN_URI}",
+            status=307,
+            headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
+            repeat=True,
+        )
+        # login/logout
+        responses.post(
+            get_mocked_url(ADT_LOGIN_URI),
+            status=302,
+            headers={
+                "Location": get_mocked_url(ADT_SUMMARY_URI),
+            },
+        )
+        responses.get(
+            get_mocked_url(ADT_LOGOUT_URI),
+            status=302,
+            headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
+            repeat=True,
+        )
+        # not doing default sync check response or keepalive
+        # because we need to set it on each test
         yield responses
 
 
@@ -158,8 +204,7 @@ def patched_sync_task_sleep() -> Generator[AsyncMock, Any, Any]:
         yield mock
 
 
-
-class PulseMockedWebServer():
+class PulseMockedWebServer:
     """Mocked Pulse Web Server."""
 
     def __init__(self, pulse_properties: PulseConnectionProperties):
@@ -177,7 +222,6 @@ class PulseMockedWebServer():
             self._make_local_prefix(ADT_SYSTEM_URI): ["system.html"],
             self._make_local_prefix(ADT_SYNC_CHECK_URI): ["sync_check.html"],
             self._make_local_prefix(ADT_ORB_URI): ["orb.html"],
-            self._make_local_prefix(ADT_ZONES_URI): ["zones.html"],
             self._make_local_prefix(ADT_SYSTEM_SETTINGS): ["system_settings.html"],
         }
         super().__init__()
@@ -292,10 +336,11 @@ class PulseMockedWebServer():
         if len(files_to_serve) > 1:
             file_to_serve = self.uri_mapping[path].pop(1)
         return serve_file(file_to_serve)
-    
+
+
 @pytest.fixture
 @pytest.mark.asyncio
-async def mocked_pulse_server()  -> PulseMockedWebServer:
+async def mocked_pulse_server() -> PulseMockedWebServer:
     """Fixture to create a mocked Pulse server."""
     pulse_properties = get_mocked_connection_properties()
     m = PulseMockedWebServer(pulse_properties)

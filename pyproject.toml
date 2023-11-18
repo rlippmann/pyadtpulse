@@ -10,14 +10,9 @@ repository = "https://github.com/rlippmann/pyadtpulse"
 classifiers = [
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: Apache Software License",
-        "Operating System :: OS Independent",
+        "Operating System :: OS Independent"
     ]
-include = [
-    { path = "doc"},
-    "example-client.py",
-    "example-client.json",
-    "CHANGELOG.md",
-]
+
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -70,3 +65,5 @@ all = true
 
 [tool.pytest.ini_options]
 timeout = 30
+
+[tool.pyright]

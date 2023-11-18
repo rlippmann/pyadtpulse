@@ -496,6 +496,7 @@ class PyADTPulseAsync:
                 self._sync_task = asyncio.create_task(
                     coro, name=f"{SYNC_CHECK_TASK_NAME}: Async session"
                 )
+                await asyncio.sleep(0)
         if self._pulse_properties.updates_exist is None:
             raise RuntimeError("Update event does not exist")
 
