@@ -407,6 +407,9 @@ class PyADTPulseAsync:
 
         Returns: True if login successful
         """
+        if self._pulse_connection.login_in_progress:
+            LOG.debug("Login already in progress, returning")
+            return True
         LOG.debug(
             "Authenticating to ADT Pulse cloud service as %s",
             self._authentication_properties.username,
@@ -439,6 +442,9 @@ class PyADTPulseAsync:
 
     async def async_logout(self) -> None:
         """Logout of ADT Pulse async."""
+        if self._pulse_connection.login_in_progress:
+            LOG.debug("Login in progress, returning")
+            return
         LOG.info(
             "Logging %s out of ADT Pulse", self._authentication_properties.username
         )

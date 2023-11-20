@@ -39,7 +39,25 @@ class PulseConnection(PulseQueryManager):
         "_authentication_properties",
         "_login_backoff",
         "_debug_locks",
+        "_login_in_progress",
     )
+
+    @typechecked
+    @staticmethod
+    def login_flag(func):
+        """Decorator to set login in progress flag."""
+
+        def wrapper(self, *args, **kwargs):
+            # Set the flag to True before calling the function
+            self.login_in_progress = True
+            try:
+                result = func(self, *args, **kwargs)
+            finally:
+                # Reset the flag to False when the function returns
+                self.login_in_progress = False
+            return result
+
+        return wrapper
 
     @typechecked
     def __init__(
@@ -65,6 +83,7 @@ class PulseConnection(PulseQueryManager):
         self._login_backoff = PulseBackoff(
             "Login", pulse_connection_status._backoff.initial_backoff_interval
         )
+        self._login_in_progress = False
         super().__init__(
             pulse_connection_status,
             pulse_connection_properties,
@@ -73,6 +92,7 @@ class PulseConnection(PulseQueryManager):
         self._debug_locks = debug_locks
 
     @typechecked
+    @login_flag
     async def async_do_login_query(
         self, username: str, password: str, fingerprint: str, timeout: int = 30
     ) -> BeautifulSoup | None:
@@ -80,6 +100,8 @@ class PulseConnection(PulseQueryManager):
         Performs a login query to the Pulse site.
 
         Will backoff on login failures.
+
+        Will set login in progress flag.
 
         Args:
             timeout (int, optional): The timeout value for the query in seconds.
@@ -171,6 +193,8 @@ class PulseConnection(PulseQueryManager):
                 return None
             return soup
 
+        with self._pc_attribute_lock:
+            self._login_in_progress = True
         data = {
             "usernameForm": username,
             "passwordForm": password,
@@ -244,3 +268,16 @@ class PulseConnection(PulseQueryManager):
     def debug_locks(self):
         """Return debug locks."""
         return self._debug_locks
+
+    @property
+    def login_in_progress(self) -> bool:
+        """Return login in progress."""
+        with self._pc_attribute_lock:
+            return self._login_in_progress
+
+    @login_in_progress.setter
+    @typechecked
+    def login_in_progress(self, value: bool) -> None:
+        """Set login in progress."""
+        with self._pc_attribute_lock:
+            self._login_in_progress = value
