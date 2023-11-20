@@ -60,7 +60,9 @@ class PyADTPulse(PyADTPulseAsync):
 
     def __repr__(self) -> str:
         """Object representation."""
-        return f"<{self.__class__.__name__}: {self._username}>"
+        return (
+            f"<{self.__class__.__name__}: {self._authentication_properties.username}>"
+        )
 
     # ADTPulse API endpoint is configurable (besides default US ADT Pulse endpoint) to
     # support testing as well as alternative ADT Pulse endpoints such as
@@ -81,11 +83,11 @@ class PyADTPulse(PyADTPulseAsync):
         LOG.debug("Creating ADT Pulse background thread")
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
         loop = asyncio.new_event_loop()
-        self._pulse_connection.loop = loop
+        self._pulse_connection_properties.loop = loop
         loop.run_until_complete(self._sync_loop())
 
         loop.close()
-        self._pulse_connection.loop = None
+        self._pulse_connection_properties.loop = None
         self._session_thread = None
 
     async def _sync_loop(self) -> None:
@@ -122,7 +124,7 @@ class PyADTPulse(PyADTPulseAsync):
             else:
                 # we should never get here
                 raise RuntimeError("Background pyadtpulse tasks not created")
-        while self._pulse_connection.authenticated_flag.is_set():
+        while self._pulse_connection_status.authenticated_flag.is_set():
             # busy wait until logout is done
             await asyncio.sleep(0.5)
 
@@ -150,7 +152,7 @@ class PyADTPulse(PyADTPulseAsync):
         self._p_attribute_lock.acquire()
         self._p_attribute_lock.release()
         if not thread.is_alive():
-            raise AuthenticationException(self._username)
+            raise AuthenticationException(self._authentication_properties.username)
 
     def logout(self) -> None:
         """Log out of ADT Pulse."""
@@ -181,7 +183,7 @@ class PyADTPulse(PyADTPulseAsync):
             Optional[asyncio.AbstractEventLoop]: the event loop object or
                                                  None if no thread is running
         """
-        return self._pulse_connection.loop
+        return self._pulse_connection_properties.loop
 
     @property
     def updates_exist(self) -> bool:
@@ -192,7 +194,7 @@ class PyADTPulse(PyADTPulseAsync):
         """
         with self._p_attribute_lock:
             if self._sync_task is None:
-                loop = self._pulse_connection.loop
+                loop = self._pulse_connection_properties.loop
                 if loop is None:
                     raise RuntimeError(
                         "ADT pulse sync function updates_exist() "
