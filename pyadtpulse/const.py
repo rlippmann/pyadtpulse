@@ -86,7 +86,18 @@ class ConnectionFailureReason(Enum):
     UNKNOWN = 1, "Unknown Failure"
     ACCOUNT_LOCKED = 2, "Account Locked"
     INVALID_CREDENTIALS = 3, "Invalid Credentials"
-    MFA_REQUIRED = 4, "MFA Required"
+    MFA_REQUIRED = (
+        4,
+        "MFA Required",
+    )
+    CLIENT_ERROR = (
+        5,
+        "Client Error",
+    )
+    SERVER_ERROR = (
+        6,
+        "Server Error",
+    )
     SERVICE_UNAVAILABLE = (
         HTTPStatus.SERVICE_UNAVAILABLE.value,
         HTTPStatus.SERVICE_UNAVAILABLE.description,

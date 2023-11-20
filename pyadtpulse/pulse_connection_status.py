@@ -65,3 +65,8 @@ class PulseConnectionStatus:
     def get_backoff(self) -> PulseBackoff:
         """Get the backoff object."""
         return self._backoff
+
+    def increment_backoff(self) -> None:
+        """Increment the backoff."""
+        with self._pcs_attribute_lock:
+            self._backoff.increment_backoff()

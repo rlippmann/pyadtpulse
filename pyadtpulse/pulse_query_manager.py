@@ -10,6 +10,7 @@ from aiohttp import (
     ClientConnectorError,
     ClientResponse,
     ClientResponseError,
+    ServerDisconnectedError,
 )
 from bs4 import BeautifulSoup
 from typeguard import typechecked
@@ -76,10 +77,13 @@ class PulseQueryManager:
         )
 
     @typechecked
-    def _compute_retry_after(self, code: int, retry_after: str) -> None:
+    def _set_retry_after(self, code: int, retry_after: str) -> None:
         """
         Check the "Retry-After" header in the response and set retry_after property
         based upon it.
+
+        Will also set the connection status failure reason and rety after
+        properties.
 
         Parameters:
             code (int): The HTTP response code
@@ -225,13 +229,26 @@ class PulseQueryManager:
                 ClientConnectionError,
                 ClientConnectorError,
                 ClientResponseError,
+                ServerDisconnectedError,
             ) as ex:
                 if return_value[0] is not None and return_value[3] is not None:
-                    self._compute_retry_after(
+                    self._set_retry_after(
                         return_value[0],
                         return_value[3],
                     )
-                    break
+                # _set_retry_after will set the status to one of
+                # SERVICE_UNAVAILABLE or TOO_MANY_REQUESTS
+                if self._connection_status.connection_failure_reason in (
+                    ConnectionFailureReason.SERVICE_UNAVAILABLE,
+                    ConnectionFailureReason.TOO_MANY_REQUESTS,
+                ):
+                    return 0, None, None
+                if type(ex) in (ServerDisconnectedError, ClientResponseError):
+                    failure_reason = ConnectionFailureReason.SERVER_ERROR
+                else:
+                    failure_reason = ConnectionFailureReason.CLIENT_ERROR
+                self._connection_status.connection_failure_reason = failure_reason
+                self._connection_status.increment_backoff()
                 LOG.debug(
                     "Error %s occurred making %s request to %s",
                     ex.args,
