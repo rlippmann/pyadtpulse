@@ -137,11 +137,22 @@ class PulseConnectionProperties:
         """Checks if sync login was performed.
 
         Returns the loop to use for run_coroutine_threadsafe if so.
-        Raises RuntimeError with given message if not."""
+        Raises RuntimeError with given message if not.
+        """
         with self._pci_attribute_lock:
             if self._loop is None:
                 raise RuntimeError(message)
             return self._loop
+
+    @typechecked
+    def check_async(self, message: str) -> None:
+        """Checks if async login was performed.
+
+        Raises RuntimeError with given message if not.
+        """
+        with self._pci_attribute_lock:
+            if self._loop is not None:
+                raise RuntimeError(message)
 
     @property
     def loop(self) -> AbstractEventLoop | None:

@@ -204,7 +204,7 @@ class PyADTPulse(PyADTPulseAsync):
                 self._sync_task = loop.create_task(
                     coro, name=f"{SYNC_CHECK_TASK_NAME}: Sync session"
                 )
-            return self._check_update_succeeded()
+            return self._pulse_properties.check_update_succeeded()
 
     def update(self) -> bool:
         """Update ADT Pulse data.
@@ -219,3 +219,21 @@ class PyADTPulse(PyADTPulseAsync):
                 "Attempting to run sync update from async login"
             ),
         ).result()
+
+    async def async_login(self) -> bool:
+        self._pulse_connection_properties.check_async(
+            "Cannot login asynchronously with a synchronous session"
+        )
+        return await super().async_login()
+
+    async def async_logout(self) -> None:
+        self._pulse_connection_properties.check_async(
+            "Cannot logout asynchronously with a synchronous session"
+        )
+        await super().async_logout()
+
+    async def async_update(self) -> bool:
+        self._pulse_connection_properties.check_async(
+            "Cannot update asynchronously with a synchronous session"
+        )
+        return await super().async_update()
