@@ -8,7 +8,8 @@ from typing import Any
 
 from typeguard import typechecked
 
-from .const import ADT_DEFAULT_POLL_INTERVAL, ADT_GATEWAY_OFFLINE_POLL_INTERVAL
+from .const import ADT_DEFAULT_POLL_INTERVAL, ADT_GATEWAY_MAX_OFFLINE_POLL_INTERVAL
+from .pulse_backoff import PulseBackoff
 from .util import parse_pulse_datetime
 
 LOG = logging.getLogger(__name__)
@@ -43,8 +44,9 @@ class ADTPulseGateway:
 
     manufacturer: str = "Unknown"
     _status_text: str = "OFFLINE"
-    _current_poll_interval: float = ADT_DEFAULT_POLL_INTERVAL
-    _initial_poll_interval: float = ADT_DEFAULT_POLL_INTERVAL
+    _backoff = PulseBackoff(
+        "Gateway", ADT_DEFAULT_POLL_INTERVAL, ADT_GATEWAY_MAX_OFFLINE_POLL_INTERVAL
+    )
     _attribute_lock = RLock()
     model: str | None = None
     serial_number: str | None = None
@@ -90,14 +92,14 @@ class ADTPulseGateway:
             self._status_text = "ONLINE"
             if not status:
                 self._status_text = "OFFLINE"
-                self._current_poll_interval = ADT_GATEWAY_OFFLINE_POLL_INTERVAL
+                self._backoff.increment_backoff()
             else:
-                self._current_poll_interval = self._initial_poll_interval
+                self._backoff.reset_backoff()
 
             LOG.info(
                 "ADT Pulse gateway %s, poll interval=%f",
                 self._status_text,
-                self._current_poll_interval,
+                self._backoff.get_current_backoff_interval(),
             )
 
     @property
@@ -108,7 +110,7 @@ class ADTPulseGateway:
             float: number of seconds between polls
         """
         with self._attribute_lock:
-            return self._current_poll_interval
+            return self._backoff.get_current_backoff_interval()
 
     @poll_interval.setter
     @typechecked
@@ -124,13 +126,9 @@ class ADTPulseGateway:
         """
         if new_interval is None:
             new_interval = ADT_DEFAULT_POLL_INTERVAL
-        elif new_interval < 0.0:
-            raise ValueError("ADT Pulse polling interval must be greater than 0")
         with self._attribute_lock:
-            self._initial_poll_interval = new_interval
-            if self._current_poll_interval != ADT_GATEWAY_OFFLINE_POLL_INTERVAL:
-                self._current_poll_interval = new_interval
-            LOG.debug("Set poll interval to %f", self._initial_poll_interval)
+            self._backoff.initial_backoff_interval = new_interval
+            LOG.debug("Set poll interval to %f", new_interval)
 
     def adjust_backoff_poll_interval(self) -> None:
         """Calculates the backoff poll interval.
@@ -141,14 +139,12 @@ class ADTPulseGateway:
 
         with self._attribute_lock:
             if self.is_online:
-                self._current_poll_interval = self._initial_poll_interval
+                self._backoff.reset_backoff()
                 return
-            # use an exponential backoff
-            self._current_poll_interval = self._current_poll_interval * 2
-            if self._current_poll_interval > ADT_GATEWAY_OFFLINE_POLL_INTERVAL:
-                self._current_poll_interval = ADT_DEFAULT_POLL_INTERVAL
+            self._backoff.increment_backoff()
             LOG.debug(
-                "Setting current poll interval to %f", self._current_poll_interval
+                "Setting current poll interval to %f",
+                self._backoff.get_current_backoff_interval(),
             )
 
     @typechecked

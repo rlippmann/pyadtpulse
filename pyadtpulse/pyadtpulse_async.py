@@ -18,7 +18,6 @@ from .const import (
     ADT_DEFAULT_KEEPALIVE_INTERVAL,
     ADT_DEFAULT_RELOGIN_INTERVAL,
     ADT_GATEWAY_STRING,
-    ADT_MAX_RELOGIN_BACKOFF,
     ADT_SYNC_CHECK_URI,
     ADT_TIMEOUT_URI,
     DEFAULT_API_HOST,
@@ -241,7 +240,7 @@ class PyADTPulseAsync:
                     continue
                 elif should_relogin(relogin_interval):
                     await self.async_logout()
-                    await self._do_login_with_backoff(task_name)
+                    await self._login_looped(task_name)
                     continue
                 LOG.debug("Resetting timeout")
                 code, response, url = await reset_pulse_cloud_timeout()
@@ -278,9 +277,9 @@ class PyADTPulseAsync:
             LOG.debug("%s successfully cancelled", task_name)
             await task
 
-    async def _do_login_with_backoff(self, task_name: str) -> None:
+    async def _login_looped(self, task_name: str) -> None:
         """
-        Performs a logout and re-login process.
+        Logs in and loops until successful.
 
         Args:
             None.
@@ -288,30 +287,14 @@ class PyADTPulseAsync:
             None
         """
         log_level = logging.DEBUG
-        login_backoff = 0.0
         login_successful = False
 
-        def compute_login_backoff() -> float:
-            if login_backoff == 0.0:
-                return self.site.gateway.poll_interval
-            return min(ADT_MAX_RELOGIN_BACKOFF, login_backoff * 2.0)
-
         while not login_successful:
-            LOG.log(
-                log_level, "%s logging in with backoff %f", task_name, login_backoff
-            )
-            await asyncio.sleep(login_backoff)
+            LOG.log(log_level, "%s performming loop login", task_name)
             login_successful = await self.async_login()
             if login_successful:
-                if login_backoff != 0.0:
-                    self._pulse_properties.set_update_status(True)
                 return
-            # only set flag on first failure
-            if login_backoff == 0.0:
-                self._pulse_properties.set_update_status(False)
-            login_backoff = compute_login_backoff()
-            if login_backoff > RELOGIN_BACKOFF_WARNING_THRESHOLD:
-                log_level = logging.WARNING
+            self._pulse_properties.set_update_status(False)
 
     async def _sync_check_task(self) -> None:
         """Asynchronous function that performs a synchronization check task."""
@@ -353,7 +336,7 @@ class PyADTPulseAsync:
                 )
                 LOG.debug("Received %s from ADT Pulse site", response_text)
                 await self.async_logout()
-                await self._do_login_with_backoff(task_name)
+                await self._login_looped(task_name)
                 return False
             return True
 

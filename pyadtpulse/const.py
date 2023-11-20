@@ -31,8 +31,8 @@ ADT_GATEWAY_STRING = "gateway"
 # ADT sets their keepalive to 1 second, so poll a little more often
 # than that
 ADT_DEFAULT_POLL_INTERVAL = 2.0
-ADT_GATEWAY_OFFLINE_POLL_INTERVAL = 90.0
-ADT_MAX_RELOGIN_BACKOFF: float = 15.0 * 60.0
+ADT_GATEWAY_MAX_OFFLINE_POLL_INTERVAL = 600.0
+ADT_MAX_BACKOFF: float = 15.0 * 60.0
 ADT_DEFAULT_HTTP_USER_AGENT = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

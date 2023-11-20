@@ -19,6 +19,7 @@ from .const import (
     ConnectionFailureReason,
 )
 from .pulse_authentication_properties import PulseAuthenticationProperties
+from .pulse_backoff import PulseBackoff
 from .pulse_connection_properties import PulseConnectionProperties
 from .pulse_connection_status import PulseConnectionStatus
 from .pulse_query_manager import PulseQueryManager
@@ -33,7 +34,12 @@ SESSION_COOKIES = {"X-mobile-browser": "false", "ICLocal": "en_US"}
 class PulseConnection(PulseQueryManager):
     """ADT Pulse connection related attributes."""
 
-    __slots__ = ("_pc_attribute_lock", "_authentication_properties", "_debug_locks")
+    __slots__ = (
+        "_pc_attribute_lock",
+        "_authentication_properties",
+        "_login_backoff",
+        "_debug_locks",
+    )
 
     @typechecked
     def __init__(
@@ -56,6 +62,9 @@ class PulseConnection(PulseQueryManager):
         self._connection_properties = pulse_connection_properties
         self._connection_status = pulse_connection_status
         self._authentication_properties = pulse_authentication
+        self._login_backoff = PulseBackoff(
+            "Login", pulse_connection_status._backoff.initial_backoff_interval
+        )
         super().__init__(
             pulse_connection_status,
             pulse_connection_properties,
@@ -69,6 +78,8 @@ class PulseConnection(PulseQueryManager):
     ) -> BeautifulSoup | None:
         """
         Performs a login query to the Pulse site.
+
+        Will backoff on login failures.
 
         Args:
             timeout (int, optional): The timeout value for the query in seconds.
@@ -95,7 +106,9 @@ class PulseConnection(PulseQueryManager):
         def check_response(
             response: tuple[int, str | None, URL | None]
         ) -> BeautifulSoup | None:
-            """Check response for errors."""
+            """Check response for errors.
+
+            Will handle setting backoffs."""
             if not handle_response(
                 response[0],
                 response[2],
@@ -105,6 +118,7 @@ class PulseConnection(PulseQueryManager):
                 self._connection_status.connection_failure_reason = (
                     ConnectionFailureReason.UNKNOWN
                 )
+                self._login_backoff.increment_backoff()
                 return None
 
             soup = make_soup(
@@ -122,7 +136,10 @@ class PulseConnection(PulseQueryManager):
                 error_text = error.get_text()
                 LOG.error("Error logging into pulse: %s", error_text)
                 if retry_after := extract_seconds_from_string(error_text) > 0:
-                    self._connection_status.retry_after = int(time()) + retry_after
+                    self._login_backoff.set_absolute_backoff_time(time() + retry_after)
+                self._connection_status.connection_failure_reason = (
+                    ConnectionFailureReason.ACCOUNT_LOCKED
+                )
                 return None
             url = self._connection_properties.make_url(ADT_SUMMARY_URI)
             if url != str(response[2]):
@@ -160,6 +177,7 @@ class PulseConnection(PulseQueryManager):
             "networkid": self._authentication_properties.site_id,
             "fingerprint": fingerprint,
         }
+        await self._login_backoff.wait_for_backoff()
         try:
             response = await self.async_query(
                 ADT_LOGIN_URI,
@@ -174,18 +192,21 @@ class PulseConnection(PulseQueryManager):
                 logging.ERROR,
                 "Error encountered during ADT login GET",
             ):
+                self._login_backoff.increment_backoff()
                 return None
         except Exception as e:  # pylint: disable=broad-except
             LOG.error("Could not log into Pulse site: %s", e)
             self._connection_status.connection_failure_reason = (
                 ConnectionFailureReason.UNKNOWN
             )
+            self._login_backoff.increment_backoff()
             return None
         soup = check_response(response)
         if soup is None:
             return None
         self._connection_status.authenticated_flag.set()
         self._authentication_properties.last_login_time = int(time())
+        self._login_backoff.reset_backoff()
         return soup
 
     @typechecked

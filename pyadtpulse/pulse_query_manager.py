@@ -1,9 +1,8 @@
 """Pulse Query Manager."""
 from logging import getLogger
-from asyncio import current_task, sleep
+from asyncio import current_task
 from datetime import datetime
 from http import HTTPStatus
-from random import uniform
 from time import time
 
 from aiohttp import (
@@ -23,6 +22,7 @@ from .const import (
     ADT_OTHER_HTTP_ACCEPT_HEADERS,
     ConnectionFailureReason,
 )
+from .pulse_backoff import PulseBackoff
 from .pulse_connection_properties import PulseConnectionProperties
 from .pulse_connection_status import PulseConnectionStatus
 from .util import make_soup, set_debug_lock
@@ -41,7 +41,12 @@ MAX_RETRIES = 3
 class PulseQueryManager:
     """Pulse Query Manager."""
 
-    __slots__ = ("_pqm_attribute_lock", "_connection_properties", "_connection_status")
+    __slots__ = (
+        "_pqm_attribute_lock",
+        "_connection_properties",
+        "_connection_status",
+        "_query_backoff",
+    )
 
     @staticmethod
     @typechecked
@@ -63,6 +68,12 @@ class PulseQueryManager:
         )
         self._connection_status = connection_status
         self._connection_properties = connection_properties
+        self._query_backoff = PulseBackoff(
+            "Query",
+            connection_status.get_backoff().initial_backoff_interval,
+            threshold=1,
+            debug_locks=debug_locks,
+        )
 
     @typechecked
     def _compute_retry_after(self, code: int, retry_after: str) -> None:
@@ -147,16 +158,7 @@ class PulseQueryManager:
 
         if method not in ("GET", "POST"):
             raise ValueError("method must be GET or POST")
-        current_time = time()
-        if self._connection_status.retry_after > current_time:
-            LOG.debug(
-                "Retry after set, query %s for %s waiting until %s",
-                method,
-                uri,
-                datetime.fromtimestamp(self._connection_status.retry_after),
-            )
-            await sleep(self._connection_status.retry_after - current_time)
-
+        await self._connection_status.get_backoff().wait_for_backoff()
         if (
             requires_authentication
             and not self._connection_status.authenticated_flag.is_set()
@@ -188,6 +190,7 @@ class PulseQueryManager:
         )
         while retry < MAX_RETRIES:
             try:
+                await self._query_backoff.wait_for_backoff()
                 async with self._connection_properties.session.request(
                     method,
                     url,
@@ -197,6 +200,7 @@ class PulseQueryManager:
                     timeout=timeout,
                 ) as response:
                     return_value = await handle_query_response(response)
+                    self._query_backoff.increment_backoff()
                     retry += 1
 
                     if return_value[0] in RECOVERABLE_ERRORS:
@@ -212,7 +216,6 @@ class PulseQueryManager:
                                 "Exceeded max retries of %d, giving up", MAX_RETRIES
                             )
                             response.raise_for_status()
-                        await sleep(2**retry + uniform(0.0, 1.0))
                         continue
 
                     response.raise_for_status()
@@ -237,6 +240,7 @@ class PulseQueryManager:
                     exc_info=True,
                 )
                 break
+        self._query_backoff.reset_backoff()
         return (return_value[0], return_value[1], return_value[2])
 
     async def query_orb(self, level: int, error_message: str) -> BeautifulSoup | None:
