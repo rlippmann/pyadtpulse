@@ -1,7 +1,7 @@
 """Pulse backoff object."""
+import asyncio
 import datetime
 from logging import getLogger
-from asyncio import sleep
 from time import time
 
 from typeguard import typechecked
@@ -37,24 +37,36 @@ class PulseBackoff:
         detailed_debug_logging=False,
     ) -> None:
         """Initialize backoff."""
+        self._check_intervals(initial_backoff_interval, max_backoff_interval)
         self._b_lock = set_debug_lock(debug_locks, "pyadtpulse._b_lock")
         self._initial_backoff_interval = initial_backoff_interval
         self._max_backoff_interval = max_backoff_interval
         self._backoff_count = 0
-        self._expiration_time = 0.0
+        self._expiration_time = time()
         self._name = name
         self._detailed_debug_logging = detailed_debug_logging
         self._threshold = threshold
 
     def _calculate_backoff_interval(self) -> float:
         """Calculate backoff time."""
-        if self._backoff_count <= self._threshold:
+        if self._backoff_count <= (self._threshold):
             return self._initial_backoff_interval
         return min(
             self._initial_backoff_interval
-            * (2 ** (self._backoff_count - self._threshold)),
+            * 2 ** (self._backoff_count - self._threshold),
             self._max_backoff_interval,
         )
+
+    @staticmethod
+    def _check_intervals(
+        initial_backoff_interval: float, max_backoff_interval: float
+    ) -> None:
+        """Check max_backoff_interval is >= initial_backoff_interval
+        and that both invervals are positive."""
+        if initial_backoff_interval <= 0:
+            raise ValueError("initial_backoff_interval must be greater than 0")
+        if max_backoff_interval < initial_backoff_interval:
+            raise ValueError("max_backoff_interval must be >= initial_backoff_interval")
 
     def get_current_backoff_interval(self) -> float:
         """Return current backoff time."""
@@ -67,7 +79,7 @@ class PulseBackoff:
             self._backoff_count += 1
             expiration_time = self._calculate_backoff_interval() + time()
 
-            if expiration_time > self._expiration_time:
+            if expiration_time >= self._expiration_time:
                 LOG.debug(
                     "Pulse backoff %s: %s expires at %s",
                     self._name,
@@ -91,16 +103,17 @@ class PulseBackoff:
     def reset_backoff(self) -> None:
         """Reset backoff."""
         with self._b_lock:
-            if self._expiration_time == 0.0 or time() > self._expiration_time:
-                self._backoff_count = 0
+            if self._expiration_time > time():
                 self._backoff_count = 0
                 self._expiration_time = 0.0
 
     @typechecked
     def set_absolute_backoff_time(self, backoff_time: float) -> None:
         """Set absolute backoff time."""
-        if backoff_time != 0 and backoff_time < time():
-            raise ValueError("backoff_time cannot be less than current time")
+        if backoff_time > time():
+            backoff_time = time()
+        else:
+            raise ValueError("Absolute backoff time must be greater than current time")
         with self._b_lock:
             LOG.debug(
                 "Pulse backoff %s: set to %s",
@@ -114,16 +127,20 @@ class PulseBackoff:
     async def wait_for_backoff(self) -> None:
         """Wait for backoff."""
         with self._b_lock:
+            if self._expiration_time < time():
+                self._expiration_time = self._calculate_backoff_interval() + time()
             diff = self._expiration_time - time()
             if diff > 0:
                 if self._detailed_debug_logging:
                     LOG.debug("Backoff %s: waiting for %s", self._name, diff)
-                await sleep(diff)
+                await asyncio.sleep(diff)
 
     def will_backoff(self) -> bool:
         """Return if backoff is needed."""
         with self._b_lock:
-            return self._expiration_time >= time()
+            return (
+                self._backoff_count > self._threshold or self._expiration_time >= time()
+            )
 
     @property
     def backoff_count(self) -> int:
@@ -147,9 +164,8 @@ class PulseBackoff:
     @typechecked
     def initial_backoff_interval(self, new_interval: float) -> None:
         """Set initial backoff interval."""
-        if new_interval <= 0.0:
-            raise ValueError("Initial backoff interval must be greater than 0")
         with self._b_lock:
+            self._check_intervals(new_interval, self._max_backoff_interval)
             self._initial_backoff_interval = new_interval
 
     @property
