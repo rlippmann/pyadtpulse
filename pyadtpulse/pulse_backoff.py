@@ -42,18 +42,20 @@ class PulseBackoff:
         self._initial_backoff_interval = initial_backoff_interval
         self._max_backoff_interval = max_backoff_interval
         self._backoff_count = 0
-        self._expiration_time = time()
+        self._expiration_time = 0.0
         self._name = name
         self._detailed_debug_logging = detailed_debug_logging
         self._threshold = threshold
 
     def _calculate_backoff_interval(self) -> float:
         """Calculate backoff time."""
-        if self._backoff_count <= (self._threshold):
+        if self._backoff_count == 0:
+            return 0.0
+        if self._backoff_count <= (self._threshold + 1):
             return self._initial_backoff_interval
         return min(
             self._initial_backoff_interval
-            * 2 ** (self._backoff_count - self._threshold),
+            * 2 ** (self._backoff_count - self._threshold - 1),
             self._max_backoff_interval,
         )
 
@@ -77,41 +79,20 @@ class PulseBackoff:
         """Increment backoff."""
         with self._b_lock:
             self._backoff_count += 1
-            expiration_time = self._calculate_backoff_interval() + time()
-
-            if expiration_time >= self._expiration_time:
-                LOG.debug(
-                    "Pulse backoff %s: %s expires at %s",
-                    self._name,
-                    self._backoff_count,
-                    datetime.datetime.fromtimestamp(self._expiration_time).strftime(
-                        "%m/%d/%Y %H:%M:%S"
-                    ),
-                )
-                self._expiration_time = expiration_time
-            else:
-                if self._detailed_debug_logging:
-                    LOG.debug(
-                        "Pulse backoff %s: not updated "
-                        "because already expires at %s",
-                        self._name,
-                        datetime.datetime.fromtimestamp(self._expiration_time).strftime(
-                            "%m/%d/%Y %H:%M:%S"
-                        ),
-                    )
 
     def reset_backoff(self) -> None:
         """Reset backoff."""
         with self._b_lock:
-            if self._expiration_time > time():
+            if self._expiration_time < time():
                 self._backoff_count = 0
                 self._expiration_time = 0.0
 
     @typechecked
     def set_absolute_backoff_time(self, backoff_time: float) -> None:
         """Set absolute backoff time."""
-        if backoff_time > time():
-            backoff_time = time()
+        curr_time = time()
+        if backoff_time > curr_time:
+            backoff_time = curr_time
         else:
             raise ValueError("Absolute backoff time must be greater than current time")
         with self._b_lock:
@@ -127,9 +108,13 @@ class PulseBackoff:
     async def wait_for_backoff(self) -> None:
         """Wait for backoff."""
         with self._b_lock:
-            if self._expiration_time < time():
-                self._expiration_time = self._calculate_backoff_interval() + time()
-            diff = self._expiration_time - time()
+            curr_time = time()
+            if self._expiration_time < curr_time:
+                if self.backoff_count == 0:
+                    return
+                diff = self._calculate_backoff_interval()
+            else:
+                diff = self._expiration_time - curr_time
             if diff > 0:
                 if self._detailed_debug_logging:
                     LOG.debug("Backoff %s: waiting for %s", self._name, diff)

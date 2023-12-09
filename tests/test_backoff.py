@@ -41,9 +41,7 @@ class TestPulseBackoff:
         assert backoff.initial_backoff_interval == initial_backoff_interval
         assert backoff._max_backoff_interval == max_backoff_interval
         assert backoff._backoff_count == 0
-
-        # Assert that the expiration time is greater than or equal to the stored time
-        assert backoff._expiration_time >= current_time
+        assert backoff._expiration_time == 0.0
 
     # Get current backoff interval
     def test_get_current_backoff_interval(self):
@@ -68,14 +66,19 @@ class TestPulseBackoff:
 
         # Act
         current_backoff_interval = backoff.get_current_backoff_interval()
-
+        assert current_backoff_interval == 0.0
+        backoff.increment_backoff()
+        current_backoff_interval = backoff.get_current_backoff_interval()
         # Assert
         assert current_backoff_interval == initial_backoff_interval
+        backoff.increment_backoff()
+        current_backoff_interval = backoff.get_current_backoff_interval()
+        assert current_backoff_interval == initial_backoff_interval * 2
 
     # Increment backoff
     def test_increment_backoff(self):
         """
-        Test that the increment_backoff method increments the backoff count and updates the expiration time.
+        Test that the increment_backoff method increments the backoff count.
         """
         # Arrange
         name = "test_backoff"
@@ -98,7 +101,8 @@ class TestPulseBackoff:
 
         # Assert
         assert backoff._backoff_count == 1
-        assert backoff._expiration_time > time()
+        backoff.increment_backoff()
+        assert backoff._backoff_count == 2
 
     # Reset backoff
     def test_reset_backoff(self):
@@ -127,7 +131,6 @@ class TestPulseBackoff:
 
         # Assert
         assert backoff._backoff_count == 0
-        assert backoff._expiration_time == 0.0
 
     # Test that the wait_for_backoff method waits for the correct amount of time.
     @pytest.mark.asyncio
@@ -155,11 +158,10 @@ class TestPulseBackoff:
 
         # Act
         await backoff.wait_for_backoff()
-
-        # Assert
-        asyncio.sleep.assert_called_once_with(
-            pytest.approx(initial_backoff_interval, abs=0.1)
-        )
+        assert asyncio.sleep.call_count == 0
+        backoff.increment_backoff()
+        await backoff.wait_for_backoff()
+        asyncio.sleep.assert_called_once_with(initial_backoff_interval)
 
     # Check if backoff is needed
     def test_will_backoff(self):
@@ -287,7 +289,7 @@ class TestPulseBackoff:
         assert backoff.initial_backoff_interval == initial_backoff_interval
         assert backoff._max_backoff_interval == max_backoff_interval
         assert backoff._backoff_count == 0
-        assert backoff._expiration_time > 0.0
+        assert backoff._expiration_time == 0.0
 
     # Increment backoff
     def test_increment_backoff2(self):
@@ -317,38 +319,11 @@ class TestPulseBackoff:
         # Assert
         assert backoff.backoff_count == 1
 
-    # Get current backoff interval
-    def test_get_current_backoff_interval2(self):
-        """
-        Test the get_current_backoff_interval method of the PulseBackoff class.
-        """
-        # Arrange
-        name = "test_backoff"
-        initial_backoff_interval = 1.0
-        max_backoff_interval = 10.0
-        threshold = 0
-        debug_locks = False
-        detailed_debug_logging = False
-        backoff = PulseBackoff(
-            name,
-            initial_backoff_interval,
-            max_backoff_interval,
-            threshold,
-            debug_locks,
-            detailed_debug_logging,
-        )
-
-        # Act
-        current_interval = backoff.get_current_backoff_interval()
-
-        # Assert
-        assert current_interval == initial_backoff_interval
-
     # Reset backoff
     def test_reset_backoff2(self):
         """
-        Test that the backoff count and expiration time are reset when calling
-        reset_backoff method.
+        Test that the backoff count and expiration time are not reset when calling
+        the reset_backoff method where expiration time is in the future.
         """
         # Arrange
         name = "test_backoff"
@@ -365,15 +340,17 @@ class TestPulseBackoff:
             debug_locks,
             detailed_debug_logging,
         )
-        backoff._backoff_count = 5
-        backoff._expiration_time = time() + 10
+        curr_time = datetime.datetime.now()
+        with freeze_time(curr_time):
+            backoff._backoff_count = 5
+            backoff._expiration_time = curr_time.timestamp() + 10.0
 
-        # Act
-        backoff.reset_backoff()
+            # Act
+            backoff.reset_backoff()
 
-        # Assert
-        assert backoff._backoff_count == 0
-        assert backoff._expiration_time == 0.0
+            # Assert
+            assert backoff._backoff_count == 5
+            assert backoff._expiration_time == curr_time.timestamp() + 10.0
 
     # Check if backoff is needed
     def test_backoff_needed(self):
@@ -434,9 +411,10 @@ class TestPulseBackoff:
         )
         # Act
         await backoff.wait_for_backoff()
-
+        assert backoff.expiration_time == 0.0
+        backoff.increment_backoff()
         # Assert
-        assert backoff.expiration_time == pytest.approx(time(), abs=0.1)
+        assert backoff.expiration_time == 0.0
 
     # Set initial backoff interval
     def test_set_initial_backoff_interval(self):
@@ -578,8 +556,8 @@ class TestPulseBackoff:
     # Calculate backoff interval with backoff_count <= threshold
     def test_calculate_backoff_interval_with_backoff_count_less_than_threshold(self):
         """
-        Test that the calculate_backoff_interval method returns the initial backoff
-        interval when the backoff count is less than or equal to the threshold.
+        Test that the calculate_backoff_interval method returns 0
+        when the backoff count is less than or equal to the threshold.
         """
         # Arrange
         name = "test_backoff"
@@ -602,7 +580,7 @@ class TestPulseBackoff:
         result = backoff._calculate_backoff_interval()
 
         # Assert
-        assert result == initial_backoff_interval
+        assert result == 0.0
 
     # Calculate backoff interval with backoff_count > threshold and exceeds max_backoff_interval
     @pytest.mark.asyncio
@@ -634,14 +612,17 @@ class TestPulseBackoff:
         result = backoff._calculate_backoff_interval()
 
         # Assert
-        assert result == 4.0
+        assert result == 2.0
         backoff._backoff_count = 3
         result = backoff._calculate_backoff_interval()
-        assert result == 8.0
+        assert result == 4.0
         backoff._backoff_count = 4
         result = backoff._calculate_backoff_interval()
-        assert result == max_backoff_interval
+        assert result == 8.0
         backoff._backoff_count = 5
+        result = backoff._calculate_backoff_interval()
+        assert result == max_backoff_interval
+        backoff._backoff_count = 6
         result = backoff._calculate_backoff_interval()
         assert result == max_backoff_interval
 
@@ -667,23 +648,26 @@ class TestPulseBackoff:
         result = backoff._calculate_backoff_interval()
 
         # Assert
-        assert result == initial_backoff_interval
+        assert result == 1.0
         backoff._backoff_count = 3
         result = backoff._calculate_backoff_interval()
-        assert result == initial_backoff_interval
+        assert result == 1.0
         backoff._backoff_count = 4
         result = backoff._calculate_backoff_interval()
-        assert result == initial_backoff_interval * 2
+        assert result == initial_backoff_interval
         backoff._backoff_count = 5
         result = backoff._calculate_backoff_interval()
-        assert result == initial_backoff_interval * 4
+        assert result == initial_backoff_interval * 2
         backoff._backoff_count = 6
         result = backoff._calculate_backoff_interval()
-        assert result == initial_backoff_interval * 8
+        assert result == initial_backoff_interval * 4
         backoff._backoff_count = 7
         result = backoff._calculate_backoff_interval()
-        assert result == max_backoff_interval
+        assert result == initial_backoff_interval * 8
         backoff._backoff_count = 8
+        result = backoff._calculate_backoff_interval()
+        assert result == max_backoff_interval
+        backoff._backoff_count = 9
         result = backoff._calculate_backoff_interval()
         assert result == max_backoff_interval
 
@@ -728,7 +712,6 @@ class TestPulseBackoff:
 
         # Assert
         assert backoff.backoff_count == 1
-        assert backoff.expiration_time == pytest.approx(now)
 
     # Calculate backoff interval with backoff_count > threshold
     def test_calculate_backoff_interval_with_backoff_count_greater_than_threshold(self):
@@ -762,37 +745,6 @@ class TestPulseBackoff:
             2 ** (backoff_count - threshold)
         )
         assert calculated_interval == min(expected_interval, max_backoff_interval)
-
-    # Test that the backoff count is incremented and the expiration time is not updated when calling increment_backoff() on PulseBackoff.
-    @pytest.mark.asyncio
-    async def test_increment_backoff_no_update_expiration_time(self, mocker):
-        """
-        Test that the backoff count is incremented and the expiration time is not updated when calling increment_backoff() on PulseBackoff.
-        """
-        # Arrange
-        name = "test_backoff"
-        initial_backoff_interval = 1.0
-        max_backoff_interval = 10.0
-        threshold = 0
-        debug_locks = False
-        detailed_debug_logging = False
-
-        backoff = PulseBackoff(
-            name,
-            initial_backoff_interval,
-            max_backoff_interval,
-            threshold,
-            debug_locks,
-            detailed_debug_logging,
-        )
-
-        # Act
-        backoff.increment_backoff()
-
-        # Assert
-        assert backoff.backoff_count == 1
-        assert backoff.expiration_time > 0.0
-        assert backoff.expiration_time >= time()
 
     # Test that calling increment backoff 4 times followed by wait for backoff
     # will sleep for 8 seconds with an initial backoff of 1, max backoff of 10.
@@ -835,26 +787,34 @@ class TestPulseBackoff:
             # Act
             frozen_time.tick(delta=datetime.timedelta(seconds=1))
             await backoff.wait_for_backoff()
+            assert asyncio.sleep.call_count == 0
+            backoff.increment_backoff()
+
+            await backoff.wait_for_backoff()
             assert asyncio.sleep.call_count == 1
             assert asyncio.sleep.call_args_list[0][0][0] == initial_backoff_interval
             backoff.increment_backoff()
 
             await backoff.wait_for_backoff()
             assert asyncio.sleep.call_count == 2
-            assert asyncio.sleep.call_args_list[1][0][0] == 2.0
+            assert asyncio.sleep.call_args_list[1][0][0] == 2 * initial_backoff_interval
             backoff.increment_backoff()
 
             await backoff.wait_for_backoff()
             assert asyncio.sleep.call_count == 3
-            assert asyncio.sleep.call_args_list[2][0][0] == 4.0
-            backoff.increment_backoff()
-
-            await backoff.wait_for_backoff()
-            assert asyncio.sleep.call_count == 4
-            assert asyncio.sleep.call_args_list[3][0][0] == 8.0
+            assert asyncio.sleep.call_args_list[2][0][0] == 4 * initial_backoff_interval
             backoff.increment_backoff()
 
             # Additional call after 4 iterations
             await backoff.wait_for_backoff()
+            assert asyncio.sleep.call_count == 4
+            assert asyncio.sleep.call_args_list[3][0][0] == 8 * initial_backoff_interval
+            backoff.increment_backoff()
+
+            await backoff.wait_for_backoff()
             assert asyncio.sleep.call_count == 5
+            assert asyncio.sleep.call_args_list[4][0][0] == max_backoff_interval
+            backoff.increment_backoff()
+            await backoff.wait_for_backoff()
+            assert asyncio.sleep.call_count == 6
             assert asyncio.sleep.call_args_list[4][0][0] == max_backoff_interval

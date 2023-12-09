@@ -1,4 +1,5 @@
 """Pulse Test Configuration."""
+import asyncio
 import os
 import re
 import sys
@@ -39,6 +40,8 @@ from pyadtpulse.pulse_connection_status import PulseConnectionStatus
 from pyadtpulse.pulse_query_manager import PulseQueryManager
 from pyadtpulse.util import remove_prefix
 
+MOCK_SLEEP_TIME = 2.0
+
 
 @pytest.fixture
 def read_file():
@@ -66,10 +69,16 @@ async def get_api_version() -> AsyncGenerator[str, Any]:
     yield pcp.api_version
 
 
+async def sleep_side_effect(duration, *args, **kwargs):
+    """Perform a small sleep to let us check status codes"""
+    await asyncio.sleep(MOCK_SLEEP_TIME)
+
+
 @pytest.fixture
 def patched_async_query_sleep() -> Generator[AsyncMock, Any, Any]:
     """Fixture to patch asyncio.sleep in async_query()."""
     a = AsyncMock()
+    a.side_effect = sleep_side_effect
     with patch(
         "pyadtpulse.pulse_query_manager.async_query.asyncio.sleep", side_effect=a
     ) as mock:

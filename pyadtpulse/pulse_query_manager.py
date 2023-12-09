@@ -101,16 +101,19 @@ class PulseQueryManager:
                 )
             except ValueError:
                 return
+        description = self._get_http_status_description(code)
         LOG.warning(
             "Task %s received Retry-After %s due to %s",
             current_task(),
             retval,
-            self._get_http_status_description(code),
+            description,
         )
         self._connection_status.retry_after = int(time()) + retval
-        try:
-            fail_reason = ConnectionFailureReason(code)
-        except ValueError:
+        if code == HTTPStatus.SERVICE_UNAVAILABLE:
+            fail_reason = ConnectionFailureReason.SERVICE_UNAVAILABLE
+        elif code == HTTPStatus.TOO_MANY_REQUESTS:
+            fail_reason = ConnectionFailureReason.TOO_MANY_REQUESTS
+        else:
             fail_reason = ConnectionFailureReason.UNKNOWN
         self._connection_status.connection_failure_reason = fail_reason
 
