@@ -150,6 +150,7 @@ async def test_login(adt_pulse_instance, extract_ids_from_data_directory):
     p, _ = await adt_pulse_instance
     # make sure everything is there on logout
     await p.async_logout()
+    await asyncio.sleep(1)
     assert p.site.name == "Robert Lippmann"
     assert p.site.zones_as_dict is not None
     assert len(p.site.zones_as_dict) == len(extract_ids_from_data_directory) - 3
@@ -288,7 +289,7 @@ async def test_keepalive_check(mocked_server_responses):
     p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
     await p.async_login()
     assert p._timeout_task is not None
-    await asyncio.sleep()
+    await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio

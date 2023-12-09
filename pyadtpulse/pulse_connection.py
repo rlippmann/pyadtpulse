@@ -43,23 +43,6 @@ class PulseConnection(PulseQueryManager):
     )
 
     @typechecked
-    @staticmethod
-    def login_flag(func):
-        """Decorator to set login in progress flag."""
-
-        def wrapper(self, *args, **kwargs):
-            # Set the flag to True before calling the function
-            self.login_in_progress = True
-            try:
-                result = func(self, *args, **kwargs)
-            finally:
-                # Reset the flag to False when the function returns
-                self.login_in_progress = False
-            return result
-
-        return wrapper
-
-    @typechecked
     def __init__(
         self,
         pulse_connection_status: PulseConnectionStatus,
@@ -92,7 +75,6 @@ class PulseConnection(PulseQueryManager):
         self._debug_locks = debug_locks
 
     @typechecked
-    @login_flag
     async def async_do_login_query(
         self, username: str, password: str, fingerprint: str, timeout: int = 30
     ) -> BeautifulSoup | None:
@@ -193,8 +175,7 @@ class PulseConnection(PulseQueryManager):
                 return None
             return soup
 
-        with self._pc_attribute_lock:
-            self._login_in_progress = True
+        self.login_in_progress = True
         data = {
             "usernameForm": username,
             "passwordForm": password,
@@ -217,6 +198,7 @@ class PulseConnection(PulseQueryManager):
                 "Error encountered during ADT login GET",
             ):
                 self._login_backoff.increment_backoff()
+                self.login_in_progress = False
                 return None
         except Exception as e:  # pylint: disable=broad-except
             LOG.error("Could not log into Pulse site: %s", e)
@@ -224,13 +206,16 @@ class PulseConnection(PulseQueryManager):
                 ConnectionFailureReason.UNKNOWN
             )
             self._login_backoff.increment_backoff()
+            self.login_in_progress = False
             return None
         soup = check_response(response)
         if soup is None:
+            self.login_in_progress = False
             return None
         self._connection_status.authenticated_flag.set()
         self._authentication_properties.last_login_time = int(time())
         self._login_backoff.reset_backoff()
+        self.login_in_progress = False
         return soup
 
     @typechecked
