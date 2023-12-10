@@ -91,9 +91,7 @@ class PulseBackoff:
     def set_absolute_backoff_time(self, backoff_time: float) -> None:
         """Set absolute backoff time."""
         curr_time = time()
-        if backoff_time > curr_time:
-            backoff_time = curr_time
-        else:
+        if backoff_time < curr_time:
             raise ValueError("Absolute backoff time must be greater than current time")
         with self._b_lock:
             LOG.debug(

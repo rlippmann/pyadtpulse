@@ -46,7 +46,7 @@ class PulseQueryManager:
         "_pqm_attribute_lock",
         "_connection_properties",
         "_connection_status",
-        "_query_backoff",
+        "_debug_locks",
     )
 
     @staticmethod
@@ -69,53 +69,7 @@ class PulseQueryManager:
         )
         self._connection_status = connection_status
         self._connection_properties = connection_properties
-        self._query_backoff = PulseBackoff(
-            "Query",
-            connection_status.get_backoff().initial_backoff_interval,
-            threshold=1,
-            debug_locks=debug_locks,
-        )
-
-    @typechecked
-    def _set_retry_after(self, code: int, retry_after: str) -> None:
-        """
-        Check the "Retry-After" header in the response and set retry_after property
-        based upon it.
-
-        Will also set the connection status failure reason and rety after
-        properties.
-
-        Parameters:
-            code (int): The HTTP response code
-            retry_after (str): The value of the "Retry-After" header
-
-        Returns:
-            None.
-        """
-        if retry_after.isnumeric():
-            retval = int(retry_after)
-        else:
-            try:
-                retval = int(
-                    datetime.strptime(retry_after, "%a, %d %b %G %T %Z").timestamp()
-                )
-            except ValueError:
-                return
-        description = self._get_http_status_description(code)
-        LOG.warning(
-            "Task %s received Retry-After %s due to %s",
-            current_task(),
-            retval,
-            description,
-        )
-        self._connection_status.retry_after = int(time()) + retval
-        if code == HTTPStatus.SERVICE_UNAVAILABLE:
-            fail_reason = ConnectionFailureReason.SERVICE_UNAVAILABLE
-        elif code == HTTPStatus.TOO_MANY_REQUESTS:
-            fail_reason = ConnectionFailureReason.TOO_MANY_REQUESTS
-        else:
-            fail_reason = ConnectionFailureReason.UNKNOWN
-        self._connection_status.connection_failure_reason = fail_reason
+        self._debug_locks = debug_locks
 
     @typechecked
     async def async_query(
@@ -148,6 +102,46 @@ class PulseQueryManager:
             tuple with integer return code, optional response text, and optional URL of
             response
         """
+
+        def set_retry_after(code: int, retry_after: str) -> None:
+            """
+            Check the "Retry-After" header in the response and set retry_after property
+            based upon it.
+
+            Will also set the connection status failure reason and rety after
+            properties.
+
+            Parameters:
+                code (int): The HTTP response code
+                retry_after (str): The value of the "Retry-After" header
+
+            Returns:
+                None.
+            """
+            if retry_after.isnumeric():
+                retval = float(retry_after)
+            else:
+                try:
+                    retval = datetime.strptime(
+                        retry_after, "%a, %d %b %G %T %Z"
+                    ).timestamp()
+                except ValueError:
+                    return
+            description = self._get_http_status_description(code)
+            LOG.warning(
+                "Task %s received Retry-After %s due to %s",
+                current_task(),
+                retval,
+                description,
+            )
+            self._connection_status.retry_after = time() + retval
+            if code == HTTPStatus.SERVICE_UNAVAILABLE:
+                fail_reason = ConnectionFailureReason.SERVICE_UNAVAILABLE
+            elif code == HTTPStatus.TOO_MANY_REQUESTS:
+                fail_reason = ConnectionFailureReason.TOO_MANY_REQUESTS
+            else:
+                fail_reason = ConnectionFailureReason.UNKNOWN
+            self._connection_status.connection_failure_reason = fail_reason
 
         async def handle_query_response(
             response: ClientResponse | None,
@@ -195,9 +189,15 @@ class PulseQueryManager:
             None,
             None,
         )
+        query_backoff = PulseBackoff(
+            f"Query:{method} {uri}",
+            self._connection_status.get_backoff().initial_backoff_interval,
+            threshold=1,
+            debug_locks=self._debug_locks,
+        )
         while retry < MAX_RETRIES:
             try:
-                await self._query_backoff.wait_for_backoff()
+                await query_backoff.wait_for_backoff()
                 async with self._connection_properties.session.request(
                     method,
                     url,
@@ -207,7 +207,7 @@ class PulseQueryManager:
                     timeout=timeout,
                 ) as response:
                     return_value = await handle_query_response(response)
-                    self._query_backoff.increment_backoff()
+                    query_backoff.increment_backoff()
                     retry += 1
 
                     if return_value[0] in RECOVERABLE_ERRORS:
@@ -235,7 +235,7 @@ class PulseQueryManager:
                 ServerDisconnectedError,
             ) as ex:
                 if return_value[0] is not None and return_value[3] is not None:
-                    self._set_retry_after(
+                    set_retry_after(
                         return_value[0],
                         return_value[3],
                     )
@@ -260,7 +260,7 @@ class PulseQueryManager:
                     exc_info=True,
                 )
                 break
-        self._query_backoff.reset_backoff()
+        # success, reset statuses
         if self._connection_status.connection_failure_reason not in (
             ConnectionFailureReason.ACCOUNT_LOCKED,
             ConnectionFailureReason.INVALID_CREDENTIALS,
