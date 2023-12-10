@@ -261,6 +261,14 @@ class PulseQueryManager:
                 )
                 break
         self._query_backoff.reset_backoff()
+        if self._connection_status.connection_failure_reason not in (
+            ConnectionFailureReason.ACCOUNT_LOCKED,
+            ConnectionFailureReason.INVALID_CREDENTIALS,
+            ConnectionFailureReason.MFA_REQUIRED,
+        ):
+            self._connection_status.connection_failure_reason = (
+                ConnectionFailureReason.NO_FAILURE
+            )
         return (return_value[0], return_value[1], return_value[2])
 
     async def query_orb(self, level: int, error_message: str) -> BeautifulSoup | None:
