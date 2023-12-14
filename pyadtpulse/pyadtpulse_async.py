@@ -435,7 +435,7 @@ class PyADTPulseAsync:
         # since we received fresh data on the status of the alarm, go ahead
         # and update the sites with the alarm status.
         self._timeout_task = asyncio.create_task(
-            self._keepalive_task(), name=f"{KEEPALIVE_TASK_NAME}"
+            self._keepalive_task(), name=KEEPALIVE_TASK_NAME
         )
         await asyncio.sleep(0)
         return True

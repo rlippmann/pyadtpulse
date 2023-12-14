@@ -321,7 +321,7 @@ class PulseQueryManager:
         if self._connection_properties.api_version != ADT_DEFAULT_VERSION:
             return
 
-        signin_url = f"{self._connection_properties.service_host}"
+        signin_url = self._connection_properties.service_host
         try:
             async with self._connection_properties.session.get(
                 signin_url,

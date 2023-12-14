@@ -401,7 +401,7 @@ def sync_example(
         sys.exit()
     except BaseException as e:
         print("Received exception logging into ADT Pulse site")
-        print(f"{e}")
+        print(str(e))
         sys.exit()
 
     if not adt.is_connected:
