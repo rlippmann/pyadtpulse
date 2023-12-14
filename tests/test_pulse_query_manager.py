@@ -3,11 +3,12 @@ import time
 from datetime import datetime, timedelta
 
 import pytest
+from aiohttp import client_exceptions
 
 from pyadtpulse.const import ADT_ORB_URI, DEFAULT_API_HOST, ConnectionFailureReason
 from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
 from pyadtpulse.pulse_connection_status import PulseConnectionStatus
-from pyadtpulse.pulse_query_manager import PulseQueryManager
+from pyadtpulse.pulse_query_manager import MAX_RETRIES, PulseQueryManager
 
 
 @pytest.mark.asyncio
@@ -108,3 +109,57 @@ async def test_retry_after(mocked_server_responses, mock_sleep, freeze_time_to_n
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
     assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
     assert mock_sleep.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_async_query_exceptions(mocked_server_responses, mock_sleep):
+    s = PulseConnectionStatus()
+    cp = PulseConnectionProperties(DEFAULT_API_HOST)
+    p = PulseQueryManager(s, cp)
+    timeout = 2
+    curr_sleep_count = 0
+    mocked_server_responses.get(
+        cp.make_url(ADT_ORB_URI),
+        exception=client_exceptions.ClientConnectionError(),
+    )
+    mocked_server_responses.get(
+        cp.make_url(ADT_ORB_URI),
+        status=200,
+    )
+    await p.async_query(ADT_ORB_URI, requires_authentication=False, timeout=timeout)
+    assert mock_sleep.call_count == 1
+    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
+    assert mock_sleep.call_args_list[0][0][0] == 2.0
+    curr_sleep_count += 1
+    mocked_server_responses.get(
+        cp.make_url(ADT_ORB_URI),
+        status=200,
+    )
+    await p.async_query(ADT_ORB_URI, requires_authentication=False)
+    assert mock_sleep.call_count == curr_sleep_count
+    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
+    for _ in range(MAX_RETRIES + 1):
+        mocked_server_responses.get(
+            cp.make_url(ADT_ORB_URI),
+            exception=client_exceptions.ClientConnectionError(),
+        )
+    mocked_server_responses.get(
+        cp.make_url(ADT_ORB_URI),
+        status=200,
+    )
+    await p.async_query(ADT_ORB_URI, requires_authentication=False, timeout=timeout)
+    for i in range(MAX_RETRIES + 1, curr_sleep_count):
+        assert mock_sleep.call_count == curr_sleep_count + MAX_RETRIES
+        assert mock_sleep.call_args_list[i][0][0] == timeout ** (i - curr_sleep_count)
+
+    assert s.connection_failure_reason == ConnectionFailureReason.CLIENT_ERROR
+
+    assert s.get_backoff().backoff_count == 1
+    backoff_sleep = s.get_backoff().get_current_backoff_interval()
+    await p.async_query(ADT_ORB_URI, requires_authentication=False, timeout=timeout)
+    # pqm backoff should trigger here
+    curr_sleep_count += MAX_RETRIES + 2  # 1 backoff for query, 1 for connection backoff
+    assert mock_sleep.call_count == curr_sleep_count
+    assert mock_sleep.call_args_list[curr_sleep_count - 2][0][0] == backoff_sleep
+    assert mock_sleep.call_args_list[curr_sleep_count - 1][0][0] == timeout
+    assert s.get_backoff().backoff_count == 0
