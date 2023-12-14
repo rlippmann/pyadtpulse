@@ -420,7 +420,8 @@ class ADTPulseSite:
                 except ValueError:
                     last_update = datetime(1970, 1, 1)
                 # name = row.find("a", {"class": "p_deviceNameText"}).get_text()
-                temp = row.find("span", {"class": "p_grayNormalText"})
+                temp = row.find("div", {"class": "p_grayNormalText"})
+                # v26 and lower: temp = row.find("span", {"class": "p_grayNormalText"})
                 if temp is None:
                     break
                 zone = int(
