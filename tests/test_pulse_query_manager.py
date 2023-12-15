@@ -116,8 +116,9 @@ async def test_async_query_exceptions(mocked_server_responses, mock_sleep):
     s = PulseConnectionStatus()
     cp = PulseConnectionProperties(DEFAULT_API_HOST)
     p = PulseQueryManager(s, cp)
-    timeout = 2
+    timeout = 3
     curr_sleep_count = 0
+    # test one exception
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         exception=client_exceptions.ClientConnectionError(),
@@ -128,9 +129,9 @@ async def test_async_query_exceptions(mocked_server_responses, mock_sleep):
     )
     await p.async_query(ADT_ORB_URI, requires_authentication=False, timeout=timeout)
     assert mock_sleep.call_count == 1
+    curr_sleep_count = mock_sleep.call_count
     assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
-    assert mock_sleep.call_args_list[0][0][0] == 2.0
-    curr_sleep_count += 1
+    assert mock_sleep.call_args_list[0][0][0] == timeout
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         status=200,
@@ -138,28 +139,61 @@ async def test_async_query_exceptions(mocked_server_responses, mock_sleep):
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
     assert mock_sleep.call_count == curr_sleep_count
     assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
-    for _ in range(MAX_RETRIES + 1):
+    # need to do ClientConnectorError, but it requires initialization
+    for ex in (
+        client_exceptions.ClientConnectionError(),
+        client_exceptions.ClientError(),
+        client_exceptions.ClientOSError(),
+        client_exceptions.ServerDisconnectedError(),
+        client_exceptions.ServerTimeoutError(),
+        client_exceptions.ServerConnectionError(),
+    ):
+        if type(ex) in (
+            client_exceptions.ClientConnectionError,
+            client_exceptions.ClientError,
+            client_exceptions.ClientOSError,
+        ):
+            error_type = ConnectionFailureReason.CLIENT_ERROR
+        else:
+            error_type = ConnectionFailureReason.SERVER_ERROR
+        for _ in range(MAX_RETRIES + 1):
+            mocked_server_responses.get(
+                cp.make_url(ADT_ORB_URI),
+                exception=ex,
+            )
         mocked_server_responses.get(
             cp.make_url(ADT_ORB_URI),
-            exception=client_exceptions.ClientConnectionError(),
+            status=200,
         )
-    mocked_server_responses.get(
-        cp.make_url(ADT_ORB_URI),
-        status=200,
-    )
-    await p.async_query(ADT_ORB_URI, requires_authentication=False, timeout=timeout)
-    for i in range(MAX_RETRIES + 1, curr_sleep_count):
-        assert mock_sleep.call_count == curr_sleep_count + MAX_RETRIES
-        assert mock_sleep.call_args_list[i][0][0] == timeout ** (i - curr_sleep_count)
+        await p.async_query(ADT_ORB_URI, requires_authentication=False, timeout=timeout)
+        assert (
+            mock_sleep.call_count == curr_sleep_count + MAX_RETRIES
+        ), f"Failure on exception {type(ex).__name__}"
+        for i in range(curr_sleep_count + 1, curr_sleep_count + MAX_RETRIES):
+            assert mock_sleep.call_args_list[i][0][0] == timeout * (
+                2 ** (i - curr_sleep_count - 1)
+            ), f"Failure on query {i}, exception {ex}"
 
-    assert s.connection_failure_reason == ConnectionFailureReason.CLIENT_ERROR
+        assert (
+            s.connection_failure_reason == error_type
+        ), f"Error type failure on exception {type(ex).__name__}"
 
-    assert s.get_backoff().backoff_count == 1
-    backoff_sleep = s.get_backoff().get_current_backoff_interval()
-    await p.async_query(ADT_ORB_URI, requires_authentication=False, timeout=timeout)
-    # pqm backoff should trigger here
-    curr_sleep_count += MAX_RETRIES + 2  # 1 backoff for query, 1 for connection backoff
-    assert mock_sleep.call_count == curr_sleep_count
-    assert mock_sleep.call_args_list[curr_sleep_count - 2][0][0] == backoff_sleep
-    assert mock_sleep.call_args_list[curr_sleep_count - 1][0][0] == timeout
-    assert s.get_backoff().backoff_count == 0
+        assert s.get_backoff().backoff_count == 1
+        backoff_sleep = s.get_backoff().get_current_backoff_interval()
+        await p.async_query(ADT_ORB_URI, requires_authentication=False, timeout=timeout)
+        # pqm backoff should trigger here
+        curr_sleep_count += (
+            MAX_RETRIES + 2
+        )  # 1 backoff for query, 1 for connection backoff
+        assert mock_sleep.call_count == curr_sleep_count
+        assert mock_sleep.call_args_list[curr_sleep_count - 2][0][0] == backoff_sleep
+        assert mock_sleep.call_args_list[curr_sleep_count - 1][0][0] == timeout
+        assert s.get_backoff().backoff_count == 0
+        mocked_server_responses.get(
+            cp.make_url(ADT_ORB_URI),
+            status=200,
+        )
+        assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
+        # this shouldn't trigger a sleep
+        await p.async_query(ADT_ORB_URI, requires_authentication=False, timeout=timeout)
+        assert mock_sleep.call_count == curr_sleep_count

@@ -8,9 +8,11 @@ from time import time
 from aiohttp import (
     ClientConnectionError,
     ClientConnectorError,
+    ClientError,
     ClientResponse,
     ClientResponseError,
-    ServerDisconnectedError,
+    ServerConnectionError,
+    ServerTimeoutError,
 )
 from bs4 import BeautifulSoup
 from typeguard import typechecked
@@ -185,7 +187,7 @@ class PulseQueryManager:
 
         async def handle_network_errors(e: Exception) -> ConnectionFailureReason:
             failure_reason = ConnectionFailureReason.CLIENT_ERROR
-            if isinstance(e, ServerDisconnectedError):
+            if isinstance(e, (ServerConnectionError, ServerTimeoutError)):
                 failure_reason = ConnectionFailureReason.SERVER_ERROR
             query_backoff.increment_backoff()
             await query_backoff.wait_for_backoff()
@@ -273,12 +275,14 @@ class PulseQueryManager:
                     response.raise_for_status()
                     failure_reason = ConnectionFailureReason.NO_FAILURE
                     break
+            except ClientResponseError:
+                failure_reason = handle_http_errors()
+                break
             except (
-                TimeoutError,
-                ClientConnectionError,
                 ClientConnectorError,
-                ClientResponseError,
-                ServerDisconnectedError,
+                ServerTimeoutError,
+                ClientError,
+                ServerConnectionError,
             ) as ex:
                 LOG.debug(
                     "Error %s occurred making %s request to %s",
@@ -287,9 +291,6 @@ class PulseQueryManager:
                     url,
                     exc_info=True,
                 )
-                if isinstance(ex, ClientResponseError):
-                    failure_reason = handle_http_errors()
-                    break
                 failure_reason = await handle_network_errors(ex)
                 retry += 1
                 continue
