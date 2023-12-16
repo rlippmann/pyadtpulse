@@ -38,7 +38,6 @@ class PulseConnection(PulseQueryManager):
         "_pc_attribute_lock",
         "_authentication_properties",
         "_login_backoff",
-        "_debug_locks",
         "_login_in_progress",
     )
 
@@ -67,17 +66,10 @@ class PulseConnection(PulseQueryManager):
             "Login", pulse_connection_status._backoff.initial_backoff_interval
         )
         self._login_in_progress = False
-        super().__init__(
-            pulse_connection_status,
-            pulse_connection_properties,
-            debug_locks,
-        )
         self._debug_locks = debug_locks
 
     @typechecked
-    async def async_do_login_query(
-        self, username: str, password: str, fingerprint: str, timeout: int = 30
-    ) -> BeautifulSoup | None:
+    async def async_do_login_query(self, timeout: int = 30) -> BeautifulSoup | None:
         """
         Performs a login query to the Pulse site.
 
@@ -166,7 +158,7 @@ class PulseConnection(PulseQueryManager):
             if error:
                 LOG.error(
                     "2FA authentiation required for ADT pulse username %s: %s",
-                    username,
+                    self._authentication_properties.username,
                     error,
                 )
                 self._connection_status.connection_failure_reason = (
@@ -177,10 +169,10 @@ class PulseConnection(PulseQueryManager):
 
         self.login_in_progress = True
         data = {
-            "usernameForm": username,
-            "passwordForm": password,
+            "usernameForm": self._authentication_properties.username,
+            "passwordForm": self._authentication_properties.password,
             "networkid": self._authentication_properties.site_id,
-            "fingerprint": fingerprint,
+            "fingerprint": self._authentication_properties.fingerprint,
         }
         await self._login_backoff.wait_for_backoff()
         try:
@@ -219,7 +211,7 @@ class PulseConnection(PulseQueryManager):
         return soup
 
     @typechecked
-    async def async_do_logout_query(self, site_id: str | None) -> None:
+    async def async_do_logout_query(self, site_id: str | None = None) -> None:
         """Performs a logout query to the ADT Pulse site."""
         params = {}
         si = ""

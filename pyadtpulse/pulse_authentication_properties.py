@@ -55,7 +55,7 @@ class PulseAuthenticationProperties:
         username: str,
         password: str,
         fingerprint: str,
-        debug_locks: bool,
+        debug_locks: bool = False,
     ) -> None:
         """Initialize Pulse Authentication Properties."""
         self.check_username(username)
