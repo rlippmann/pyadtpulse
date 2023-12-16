@@ -9,7 +9,6 @@ from .const import (
     ADT_DEFAULT_HTTP_ACCEPT_HEADERS,
     ADT_DEFAULT_HTTP_USER_AGENT,
     ADT_DEFAULT_SEC_FETCH_HEADERS,
-    ADT_DEFAULT_VERSION,
     API_HOST_CA,
     API_PREFIX,
     DEFAULT_API_HOST,
@@ -78,7 +77,7 @@ class PulseConnectionProperties:
         else:
             self._session = session
         self.service_host = host
-        self._api_version = ADT_DEFAULT_VERSION
+        self._api_version = ""
         self._session.headers.update(ADT_DEFAULT_HTTP_ACCEPT_HEADERS)
         self._session.headers.update(ADT_DEFAULT_SEC_FETCH_HEADERS)
         self._session.headers.update({"User-Agent": user_agent})

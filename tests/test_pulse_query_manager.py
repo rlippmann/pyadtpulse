@@ -8,6 +8,7 @@ import pytest
 from aiohttp import client_exceptions
 from bs4 import BeautifulSoup
 
+from conftest import MOCKED_API_VERSION
 from pyadtpulse.const import ADT_ORB_URI, DEFAULT_API_HOST, ConnectionFailureReason
 from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
 from pyadtpulse.pulse_connection_status import PulseConnectionStatus
@@ -15,7 +16,19 @@ from pyadtpulse.pulse_query_manager import MAX_RETRIES, PulseQueryManager
 
 
 @pytest.mark.asyncio
-async def test_query_orb(mocked_server_responses, read_file, mock_sleep):
+async def test_fetch_version(mocked_server_responses):
+    """Test fetch version."""
+    s = PulseConnectionStatus()
+    cp = PulseConnectionProperties(DEFAULT_API_HOST)
+    p = PulseQueryManager(s, cp)
+    await p.async_fetch_version()
+    assert cp.api_version == MOCKED_API_VERSION
+
+
+@pytest.mark.asyncio
+async def test_query_orb(
+    mocked_server_responses, read_file, mock_sleep, get_mocked_connection_properties
+):
     """Test query orb.
 
     We also check that it waits for authenticated flag.
@@ -25,7 +38,7 @@ async def test_query_orb(mocked_server_responses, read_file, mock_sleep):
         return await p.query_orb(logging.DEBUG, "Failed to query orb")
 
     s = PulseConnectionStatus()
-    cp = PulseConnectionProperties(DEFAULT_API_HOST)
+    cp = get_mocked_connection_properties
     p = PulseQueryManager(s, cp)
     orb_file = read_file("orb.html")
     mocked_server_responses.get(
@@ -54,7 +67,12 @@ async def test_query_orb(mocked_server_responses, read_file, mock_sleep):
 
 
 @pytest.mark.asyncio
-async def test_retry_after(mocked_server_responses, mock_sleep, freeze_time_to_now):
+async def test_retry_after(
+    mocked_server_responses,
+    mock_sleep,
+    freeze_time_to_now,
+    get_mocked_connection_properties,
+):
     """Test retry after."""
 
     retry_after_time = 120
@@ -62,12 +80,9 @@ async def test_retry_after(mocked_server_responses, mock_sleep, freeze_time_to_n
     now = time.time()
 
     s = PulseConnectionStatus()
-    cp = PulseConnectionProperties(DEFAULT_API_HOST)
+    cp = get_mocked_connection_properties
     p = PulseQueryManager(s, cp)
 
-    s = PulseConnectionStatus()
-    cp = PulseConnectionProperties(DEFAULT_API_HOST)
-    p = PulseQueryManager(s, cp)
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         status=429,
@@ -154,9 +169,11 @@ async def test_retry_after(mocked_server_responses, mock_sleep, freeze_time_to_n
 
 
 @pytest.mark.asyncio
-async def test_async_query_exceptions(mocked_server_responses, mock_sleep):
+async def test_async_query_exceptions(
+    mocked_server_responses, mock_sleep, get_mocked_connection_properties
+):
     s = PulseConnectionStatus()
-    cp = PulseConnectionProperties(DEFAULT_API_HOST)
+    cp = get_mocked_connection_properties
     p = PulseQueryManager(s, cp)
     timeout = 3
     curr_sleep_count = 0

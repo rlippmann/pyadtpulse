@@ -60,8 +60,6 @@ ADT_ARM_DISARM_URI = "/quickcontrol/armDisarm.jsp"
 
 ADT_SYSTEM_SETTINGS = "/system/settings.jsp"
 
-ADT_DEFAULT_VERSION = "24.0.0-117"
-
 ADT_HTTP_BACKGROUND_URIS = (ADT_ORB_URI, ADT_SYNC_CHECK_URI)
 STATE_OK = "OK"
 STATE_OPEN = "Open"

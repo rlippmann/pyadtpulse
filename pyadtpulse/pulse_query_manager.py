@@ -6,7 +6,6 @@ from http import HTTPStatus
 from time import time
 
 from aiohttp import (
-    ClientConnectionError,
     ClientConnectorError,
     ClientError,
     ClientResponse,
@@ -19,7 +18,6 @@ from typeguard import typechecked
 from yarl import URL
 
 from .const import (
-    ADT_DEFAULT_VERSION,
     ADT_HTTP_BACKGROUND_URIS,
     ADT_ORB_URI,
     ADT_OTHER_HTTP_ACCEPT_HEADERS,
@@ -206,7 +204,7 @@ class PulseQueryManager:
                 )
                 await self._connection_status.authenticated_flag.wait()
             else:
-                if self._connection_properties.api_version == ADT_DEFAULT_VERSION:
+                if not self._connection_properties.api_version:
                     await self.async_fetch_version()
 
         def update_connection_status():
@@ -316,28 +314,22 @@ class PulseQueryManager:
         return make_soup(code, response, url, level, error_message)
 
     async def async_fetch_version(self) -> None:
-        """Fetch ADT Pulse version."""
+        """Fetch ADT Pulse version.
+
+        Exceptions are passed through to the caller since if this fails, there is
+        probably some underlying connection issue.
+        """
         response_path: str | None = None
-        response_code = HTTPStatus.OK.value
-        if self._connection_properties.api_version != ADT_DEFAULT_VERSION:
+        if self._connection_properties.api_version:
             return
 
         signin_url = self._connection_properties.service_host
-        try:
-            async with self._connection_properties.session.get(
-                signin_url,
-            ) as response:
-                response_code = response.status
-                # we only need the headers here, don't parse response
-                response.raise_for_status()
-                response_path = response.url.path
-        except (ClientResponseError, ClientConnectionError):
-            LOG.warning(
-                "Error %i: occurred during API version fetch, defaulting to %s",
-                response_code,
-                ADT_DEFAULT_VERSION,
-            )
-            return
+        async with self._connection_properties.session.get(
+            signin_url,
+        ) as response:
+            # we only need the headers here, don't parse response
+            response.raise_for_status()
+            response_path = response.url.path
         version = self._connection_properties.get_api_version(response_path)
         if version is not None:
             self._connection_properties.api_version = version
@@ -347,8 +339,3 @@ class PulseQueryManager:
                 self._connection_properties.service_host,
             )
             return
-
-        LOG.warning(
-            "Couldn't auto-detect ADT Pulse version, defaulting to %s",
-            ADT_DEFAULT_VERSION,
-        )

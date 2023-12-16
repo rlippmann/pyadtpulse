@@ -416,11 +416,7 @@ class PyADTPulseAsync:
         )
         await self._pulse_connection.async_fetch_version()
 
-        soup = await self._pulse_connection.async_do_login_query(
-            self._authentication_properties.username,
-            self._authentication_properties.password,
-            self._authentication_properties.fingerprint,
-        )
+        soup = await self._pulse_connection.async_do_login_query()
         if soup is None:
             return False
         # if tasks are started, we've already logged in before

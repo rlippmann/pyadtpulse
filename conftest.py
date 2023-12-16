@@ -2,7 +2,7 @@
 import os
 import re
 import sys
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -36,9 +36,10 @@ from pyadtpulse.const import (
     DEFAULT_API_HOST,
 )
 from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
-from pyadtpulse.pulse_connection_status import PulseConnectionStatus
-from pyadtpulse.pulse_query_manager import PulseQueryManager
 from pyadtpulse.util import remove_prefix
+
+MOCKED_API_VERSION = "26.0.0-32"
+DEFAULT_SYNC_CHECK = "234532-456432-0"
 
 
 @pytest.fixture
@@ -58,6 +59,7 @@ def read_file():
 
 @pytest.fixture
 def mock_sleep():
+    """Fixture to mock asyncio.sleep."""
     with patch("asyncio.sleep") as m:
         yield m
 
@@ -70,31 +72,18 @@ def freeze_time_to_now():
         yield frozen_time
 
 
-@pytest.fixture(scope="session")
-@pytest.mark.asyncio
-async def get_api_version() -> AsyncGenerator[str, Any]:
-    """Fixture to get the API version."""
-    pcp = PulseConnectionProperties(DEFAULT_API_HOST)
-    pcs = PulseConnectionStatus()
-    pqm = PulseQueryManager(pcs, pcp)
-    await pqm.async_fetch_version()
-    yield pcp.api_version
-
-
-@pytest.fixture(scope="session")
-def get_mocked_api_version() -> str:
-    """Fixture to get the test API version."""
-    return "26.0.0-32"
-
-
 @pytest.fixture
 def get_mocked_connection_properties() -> PulseConnectionProperties:
     """Fixture to get the test connection properties."""
-    return PulseConnectionProperties(DEFAULT_API_HOST)
+    p = PulseConnectionProperties(DEFAULT_API_HOST)
+    p.api_version = MOCKED_API_VERSION
+    return p
 
 
 @pytest.fixture
 def get_mocked_url(get_mocked_connection_properties):
+    """Fixture to get the test url."""
+
     def _get_mocked_url(path: str) -> str:
         return get_mocked_connection_properties.make_url(path)
 
@@ -132,11 +121,6 @@ def extract_ids_from_data_directory() -> list[str]:
         if match:
             ids.add(match.group(1))
     return list(ids)
-
-
-@pytest.fixture
-def get_default_sync_check() -> str:
-    return "234532-456432-0"
 
 
 @pytest.fixture
@@ -209,6 +193,7 @@ def patched_sync_task_sleep() -> Generator[AsyncMock, Any, Any]:
         yield mock
 
 
+# not using this currently
 class PulseMockedWebServer:
     """Mocked Pulse Web Server."""
 
