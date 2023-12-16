@@ -214,7 +214,7 @@ class PulseQueryManager:
                 return
             if failure_reason == ConnectionFailureReason.NO_FAILURE:
                 self._connection_status.reset_backoff()
-            elif failure_reason not in RETRY_LATER_CONNECTION_STATUSES:
+            elif retry == MAX_RETRIES or return_value[0] in RECOVERABLE_ERRORS:
                 self._connection_status.increment_backoff()
             self._connection_status.connection_failure_reason = failure_reason
 
@@ -263,7 +263,7 @@ class PulseQueryManager:
                             "retrying (count = %d)",
                             return_value[0],
                             self._get_http_status_description(return_value[0]),
-                            retry,
+                            retry + 1,
                         )
                         if retry == MAX_RETRIES:
                             LOG.warning(

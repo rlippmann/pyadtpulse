@@ -1,14 +1,56 @@
 """Test Pulse Query Manager."""
+import logging
+import asyncio
 import time
 from datetime import datetime, timedelta
 
 import pytest
 from aiohttp import client_exceptions
+from bs4 import BeautifulSoup
 
 from pyadtpulse.const import ADT_ORB_URI, DEFAULT_API_HOST, ConnectionFailureReason
 from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
 from pyadtpulse.pulse_connection_status import PulseConnectionStatus
 from pyadtpulse.pulse_query_manager import MAX_RETRIES, PulseQueryManager
+
+
+@pytest.mark.asyncio
+async def test_query_orb(mocked_server_responses, read_file, mock_sleep):
+    """Test query orb.
+
+    We also check that it waits for authenticated flag.
+    """
+
+    async def query_orb_task():
+        return await p.query_orb(logging.DEBUG, "Failed to query orb")
+
+    s = PulseConnectionStatus()
+    cp = PulseConnectionProperties(DEFAULT_API_HOST)
+    p = PulseQueryManager(s, cp)
+    orb_file = read_file("orb.html")
+    mocked_server_responses.get(
+        cp.make_url(ADT_ORB_URI), status=200, content_type="text/html", body=orb_file
+    )
+    task = asyncio.create_task(query_orb_task())
+    await asyncio.sleep(2)
+    assert not task.done()
+    s.authenticated_flag.set()
+    await task
+    assert task.done()
+    assert task.result() == BeautifulSoup(orb_file, "html.parser")
+    assert mock_sleep.call_count == 1  # from the asyncio.sleep call above
+    mocked_server_responses.get(cp.make_url(ADT_ORB_URI), status=404)
+    result = await query_orb_task()
+    assert result is None
+    assert mock_sleep.call_count == 1
+    assert s.connection_failure_reason == ConnectionFailureReason.SERVER_ERROR
+    mocked_server_responses.get(
+        cp.make_url(ADT_ORB_URI), status=200, content_type="text/html", body=orb_file
+    )
+    result = await query_orb_task()
+    assert result == BeautifulSoup(orb_file, "html.parser")
+    assert mock_sleep.call_count == 1
+    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
 
 
 @pytest.mark.asyncio
