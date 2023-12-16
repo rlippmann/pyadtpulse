@@ -100,7 +100,11 @@ class PulseConnectionProperties:
     @service_host.setter
     @typechecked
     def service_host(self, host: str):
-        """Set the service host."""
+        """Set the service host.
+
+        Raises:
+            ValueError if host is not valid.
+        """
         self.check_service_host(host)
         with self._pci_attribute_lock:
             self._api_host = host
@@ -181,7 +185,28 @@ class PulseConnectionProperties:
     @api_version.setter
     @typechecked
     def api_version(self, version: str):
+        """Set the API version.
+
+        Raises:
+            ValueError: if version is not in the form major.minor.patch-subpatch
+        """
+
+        def check_version_string(value: str):
+            parts = value.split("-")
+            if len(parts) == 2:
+                version_parts = parts[0].split(".")
+                if len(version_parts) == 3 and version_parts[0].isdigit():
+                    major_version = int(version_parts[0])
+                    if major_version >= 26:
+                        return
+                    else:
+                        raise ValueError("API version is numeric but less than 26")
+            raise ValueError(
+                "API version must be in the form major.minor.patch-subpatch"
+            )
+
         with self._pci_attribute_lock:
+            check_version_string(version)
             self._api_version = version
 
     @typechecked
