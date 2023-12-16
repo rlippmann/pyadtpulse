@@ -206,6 +206,10 @@ class PulseQueryManager:
             else:
                 if not self._connection_properties.api_version:
                     await self.async_fetch_version()
+                    if not self._connection_properties.api_version:
+                        raise ValueError(
+                            "Could not determine API version for connection"
+                        )
 
         def update_connection_status():
             if failure_reason not in CHANGEABLE_CONNECTION_STATUSES:

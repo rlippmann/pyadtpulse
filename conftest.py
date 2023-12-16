@@ -11,7 +11,7 @@ from urllib import parse
 
 import freezegun
 import pytest
-from aiohttp import web
+from aiohttp import client_exceptions, web
 from aioresponses import aioresponses
 
 # Get the root directory of your project
@@ -78,6 +78,19 @@ def get_mocked_connection_properties() -> PulseConnectionProperties:
     p = PulseConnectionProperties(DEFAULT_API_HOST)
     p.api_version = MOCKED_API_VERSION
     return p
+
+
+@pytest.fixture
+def mock_server_down():
+    """Fixture to mock server down."""
+    with aioresponses() as m:
+        m.get(
+            DEFAULT_API_HOST,
+            status=500,
+            exception=client_exceptions.ServerConnectionError(),
+            repeat=True,
+        )
+        yield m
 
 
 @pytest.fixture

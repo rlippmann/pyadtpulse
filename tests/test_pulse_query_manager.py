@@ -26,6 +26,18 @@ async def test_fetch_version(mocked_server_responses):
 
 
 @pytest.mark.asyncio
+async def test_fetch_version_fail(mock_server_down):
+    """Test fetch version."""
+    s = PulseConnectionStatus()
+    cp = PulseConnectionProperties(DEFAULT_API_HOST)
+    p = PulseQueryManager(s, cp)
+    with pytest.raises(client_exceptions.ServerConnectionError):
+        await p.async_fetch_version()
+    with pytest.raises(client_exceptions.ServerConnectionError):
+        await p.async_query(ADT_ORB_URI, requires_authentication=False)
+
+
+@pytest.mark.asyncio
 async def test_query_orb(
     mocked_server_responses, read_file, mock_sleep, get_mocked_connection_properties
 ):
