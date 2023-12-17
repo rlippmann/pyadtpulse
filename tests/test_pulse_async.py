@@ -188,13 +188,6 @@ async def test_wait_for_update(m, adt_pulse_instance):
     assert m.call_count == 1
 
 
-@pytest.mark.asyncio
-# @patch.object(
-#    PyADTPulseAsync,
-#    "wait_for_update",
-#    side_effect=PyADTPulseAsync.wait_for_update,
-#    autospec=True,
-# )
 async def test_orb_update(
     mocked_server_responses, get_mocked_url, read_file, get_default_sync_check
 ):

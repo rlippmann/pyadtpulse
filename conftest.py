@@ -94,6 +94,40 @@ def mock_server_down():
 
 
 @pytest.fixture
+def mock_server_temporarily_down(get_mocked_url, read_file):
+    """Fixture to mock server temporarily down."""
+    with aioresponses() as responses:
+        responses.get(
+            DEFAULT_API_HOST,
+            status=500,
+            exception=client_exceptions.ServerConnectionError(),
+        )
+        responses.get(
+            DEFAULT_API_HOST,
+            status=500,
+            exception=client_exceptions.ServerConnectionError(),
+        )
+        responses.get(
+            DEFAULT_API_HOST,
+            status=302,
+            headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
+        )
+        responses.get(
+            f"{DEFAULT_API_HOST}/{ADT_LOGIN_URI}",
+            status=307,
+            headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
+            repeat=True,
+        )
+        responses.get(
+            get_mocked_url(ADT_LOGIN_URI),
+            body=read_file("signin.html"),
+            content_type="text/html",
+        )
+
+        yield responses
+
+
+@pytest.fixture
 def get_mocked_url(get_mocked_connection_properties):
     """Fixture to get the test url."""
 
@@ -185,8 +219,11 @@ def mocked_server_responses(
                 "Location": get_mocked_url(ADT_SUMMARY_URI),
             },
         )
+        logout_pattern = re.compile(
+            rf"{re.escape(get_mocked_url(ADT_LOGOUT_URI))}/?.*$"
+        )
         responses.get(
-            get_mocked_url(ADT_LOGOUT_URI),
+            logout_pattern,
             status=302,
             headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
             repeat=True,

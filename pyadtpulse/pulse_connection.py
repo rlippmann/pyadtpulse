@@ -152,6 +152,7 @@ class PulseConnection(PulseQueryManager):
                 self._connection_status.connection_failure_reason = (
                     ConnectionFailureReason.INVALID_CREDENTIALS
                 )
+                self._login_backoff.increment_backoff()
                 return None
 
             error = soup.find("div", "responsiveContainer")
@@ -164,6 +165,7 @@ class PulseConnection(PulseQueryManager):
                 self._connection_status.connection_failure_reason = (
                     ConnectionFailureReason.MFA_REQUIRED
                 )
+                self._login_backoff.increment_backoff()
                 return None
             return soup
 
@@ -187,17 +189,15 @@ class PulseConnection(PulseQueryManager):
                 response[0],
                 response[2],
                 logging.ERROR,
-                "Error encountered during ADT login GET",
+                "Error encountered during ADT login POST",
             ):
+                # FIXME: should we let the query manager handle the backoff?
                 self._login_backoff.increment_backoff()
                 self.login_in_progress = False
                 return None
         except Exception as e:  # pylint: disable=broad-except
             LOG.error("Could not log into Pulse site: %s", e)
-            self._connection_status.connection_failure_reason = (
-                ConnectionFailureReason.UNKNOWN
-            )
-            self._login_backoff.increment_backoff()
+            # the query manager will handle the backoff
             self.login_in_progress = False
             return None
         soup = check_response(response)
