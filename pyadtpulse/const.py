@@ -11,6 +11,7 @@ API_PREFIX = "/myhome/"
 
 ADT_LOGIN_URI = "/access/signin.jsp"
 ADT_LOGOUT_URI = "/access/signout.jsp"
+ADT_MFA_FAIL_URI = "/mfa/mfaSignIn.jsp?workflow=challenge"
 
 ADT_SUMMARY_URI = "/summary/summary.jsp"
 ADT_ZONES_URI = "/ajax/homeViewDevAjax.jsp"

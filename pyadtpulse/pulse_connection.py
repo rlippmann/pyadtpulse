@@ -15,6 +15,7 @@ from yarl import URL
 from .const import (
     ADT_LOGIN_URI,
     ADT_LOGOUT_URI,
+    ADT_MFA_FAIL_URI,
     ADT_SUMMARY_URI,
     ConnectionFailureReason,
 )
@@ -127,54 +128,38 @@ class PulseConnection(PulseQueryManager):
             # FIXME: should probably raise exceptions here
             if soup is None:
                 return None
-            error = soup.find("div", {"id": "warnMsgContents"})
-            if error:
-                error_text = error.get_text()
-                LOG.error("Error logging into pulse: %s", error_text)
-                if "Try again in" in error_text:
-                    if (retry_after := extract_seconds_from_string(error_text)) > 0:
-                        self._login_backoff.set_absolute_backoff_time(
-                            time() + retry_after
-                        )
-                    self._connection_status.connection_failure_reason = (
-                        ConnectionFailureReason.ACCOUNT_LOCKED
-                    )
-                    return None
-                else:
-                    # FIXME: not sure if this is true
-                    self._connection_status.connection_failure_reason = (
-                        ConnectionFailureReason.INVALID_CREDENTIALS
-                    )
-                    self._login_backoff.increment_backoff()
-                    return None
             url = self._connection_properties.make_url(ADT_SUMMARY_URI)
-            if url != str(response[2]):
+            response_url_string = str(response[2])
+            if url != response_url_string:
                 # more specifically:
                 # redirect to signin.jsp = username/password error
                 # redirect to mfaSignin.jsp = fingerprint error
                 # locked out = error == "Sign In unsuccessful. Your account has been
                 # locked after multiple sign in attempts.Try again in 30 minutes."
-
-                LOG.error(
-                    "Authentication error encountered logging into ADT Pulse"
-                    " at location %s",
-                    url,
-                )
-                self._connection_status.connection_failure_reason = (
-                    ConnectionFailureReason.INVALID_CREDENTIALS
-                )
-                self._login_backoff.increment_backoff()
-                return None
-            error = soup.find("div", "responsiveContainer")
-            if error:
-                LOG.error(
-                    "2FA authentiation required for ADT pulse username %s: %s",
-                    self._authentication_properties.username,
-                    error,
-                )
-                self._connection_status.connection_failure_reason = (
-                    ConnectionFailureReason.MFA_REQUIRED
-                )
+                fail_reason = ConnectionFailureReason.UNKNOWN
+                url = self._connection_properties.make_url(ADT_LOGIN_URI)
+                if url == response_url_string:
+                    error = soup.find("div", {"id": "warnMsgContents"})
+                    if error:
+                        error_text = error.get_text()
+                        LOG.error("Error logging into pulse: %s", error_text)
+                        if "Try again in" in error_text:
+                            if (
+                                retry_after := extract_seconds_from_string(error_text)
+                            ) > 0:
+                                self._login_backoff.set_absolute_backoff_time(
+                                    time() + retry_after
+                                )
+                            fail_reason = ConnectionFailureReason.ACCOUNT_LOCKED
+                        else:
+                            # FIXME: not sure if this is true
+                            fail_reason = ConnectionFailureReason.INVALID_CREDENTIALS
+                else:
+                    url = self._connection_properties.make_url(ADT_MFA_FAIL_URI)
+                    if url == response_url_string:
+                        fail_reason = ConnectionFailureReason.MFA_REQUIRED
+                LOG.error("Error logging into pulse: %s", fail_reason.value[1])
+                self._connection_status.connection_failure_reason = fail_reason
                 self._login_backoff.increment_backoff()
                 return None
             return soup
