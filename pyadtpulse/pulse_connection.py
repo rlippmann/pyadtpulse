@@ -92,9 +92,9 @@ class PulseConnection(PulseQueryManager):
 
         def extract_seconds_from_string(s: str) -> int:
             seconds = 0
-            match = re.search(r"Try again in (\d+)", s)
+            match = re.search(r"\d+", s)
             if match:
-                seconds = int(match.group(1))
+                seconds = int(match.group())
                 if "minutes" in s:
                     seconds *= 60
             return seconds
@@ -131,12 +131,22 @@ class PulseConnection(PulseQueryManager):
             if error:
                 error_text = error.get_text()
                 LOG.error("Error logging into pulse: %s", error_text)
-                if retry_after := extract_seconds_from_string(error_text) > 0:
-                    self._login_backoff.set_absolute_backoff_time(time() + retry_after)
-                self._connection_status.connection_failure_reason = (
-                    ConnectionFailureReason.ACCOUNT_LOCKED
-                )
-                return None
+                if "Try again in" in error_text:
+                    if (retry_after := extract_seconds_from_string(error_text)) > 0:
+                        self._login_backoff.set_absolute_backoff_time(
+                            time() + retry_after
+                        )
+                    self._connection_status.connection_failure_reason = (
+                        ConnectionFailureReason.ACCOUNT_LOCKED
+                    )
+                    return None
+                else:
+                    # FIXME: not sure if this is true
+                    self._connection_status.connection_failure_reason = (
+                        ConnectionFailureReason.INVALID_CREDENTIALS
+                    )
+                    self._login_backoff.increment_backoff()
+                    return None
             url = self._connection_properties.make_url(ADT_SUMMARY_URI)
             if url != str(response[2]):
                 # more specifically:
@@ -144,6 +154,7 @@ class PulseConnection(PulseQueryManager):
                 # redirect to mfaSignin.jsp = fingerprint error
                 # locked out = error == "Sign In unsuccessful. Your account has been
                 # locked after multiple sign in attempts.Try again in 30 minutes."
+
                 LOG.error(
                     "Authentication error encountered logging into ADT Pulse"
                     " at location %s",
@@ -154,7 +165,6 @@ class PulseConnection(PulseQueryManager):
                 )
                 self._login_backoff.increment_backoff()
                 return None
-
             error = soup.find("div", "responsiveContainer")
             if error:
                 LOG.error(
@@ -169,6 +179,9 @@ class PulseConnection(PulseQueryManager):
                 return None
             return soup
 
+        if self.login_in_progress:
+            return None
+        self._connection_status.authenticated_flag.clear()
         self.login_in_progress = True
         data = {
             "usernameForm": self._authentication_properties.username,
@@ -232,10 +245,7 @@ class PulseConnection(PulseQueryManager):
     @property
     def is_connected(self) -> bool:
         """Check if ADT Pulse is connected."""
-        return (
-            self._connection_status.authenticated_flag.is_set()
-            and self._connection_status.retry_after < int(time())
-        )
+        return self._connection_status.authenticated_flag.is_set()
 
     def check_sync(self, message: str) -> AbstractEventLoop:
         """Convenience method to check if running from sync context."""

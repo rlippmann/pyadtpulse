@@ -1,4 +1,7 @@
 """Test Pulse Connection."""
+import asyncio
+import datetime
+
 import pytest
 from bs4 import BeautifulSoup
 
@@ -116,5 +119,149 @@ async def test_account_lockout(
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI), 200, read_file("summary.html")
+        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_locked.html")
     )
+    await pc.async_do_login_query()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.ACCOUNT_LOCKED
+    )
+    assert pc._login_backoff.backoff_count == 0
+    assert mock_sleep.call_count == 0
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI),
+        status=302,
+        headers={
+            "Location": get_mocked_url(ADT_SUMMARY_URI),
+        },
+    )
+    await pc.async_do_login_query()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.NO_FAILURE
+    )
+    assert mock_sleep.call_count == 1
+    assert mock_sleep.call_args_list[0][0][0] == 60 * 30
+    freeze_time_to_now.tick(delta=datetime.timedelta(seconds=60 * 30 + 1))
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_locked.html")
+    )
+    await pc.async_do_login_query()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.ACCOUNT_LOCKED
+    )
+    assert pc._login_backoff.backoff_count == 0
+    assert mock_sleep.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_invalid_credentials(
+    mocked_server_responses, mock_sleep, get_mocked_url, read_file
+):
+    pc = setup_pulse_connection()
+    # do initial login
+    await pc.async_do_login_query()
+    assert mock_sleep.call_count == 0
+    assert pc.login_in_progress is False
+    assert pc._login_backoff.backoff_count == 0
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_fail.html")
+    )
+    await pc.async_do_login_query()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.INVALID_CREDENTIALS
+    )
+    assert pc._login_backoff.backoff_count == 1
+    assert mock_sleep.call_count == 0
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_fail.html")
+    )
+    await pc.async_do_login_query()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.INVALID_CREDENTIALS
+    )
+    assert pc._login_backoff.backoff_count == 2
+    assert mock_sleep.call_count == 1
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI),
+        status=302,
+        headers={
+            "Location": get_mocked_url(ADT_SUMMARY_URI),
+        },
+    )
+    await pc.async_do_login_query()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.NO_FAILURE
+    )
+    assert pc._login_backoff.backoff_count == 0
+    assert mock_sleep.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_mfa_failure(
+    mocked_server_responses, mock_sleep, get_mocked_url, read_file
+):
+    pc = setup_pulse_connection()
+    # do initial login
+    await pc.async_do_login_query()
+    assert mock_sleep.call_count == 0
+    assert pc.login_in_progress is False
+    assert pc._login_backoff.backoff_count == 0
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("mfa.html")
+    )
+    await pc.async_do_login_query()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.MFA_REQUIRED
+    )
+    assert pc._login_backoff.backoff_count == 1
+    assert mock_sleep.call_count == 0
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("mfa.html")
+    )
+    await pc.async_do_login_query()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.INVALID_CREDENTIALS
+    )
+    assert pc._login_backoff.backoff_count == 2
+    assert mock_sleep.call_count == 1
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI),
+        status=302,
+        headers={
+            "Location": get_mocked_url(ADT_SUMMARY_URI),
+        },
+    )
+    await pc.async_do_login_query()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.NO_FAILURE
+    )
+    assert pc._login_backoff.backoff_count == 0
+    assert mock_sleep.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_only_single_login(mocked_server_responses):
+    async def login_task():
+        await pc.async_do_login_query()
+
+    pc = setup_pulse_connection()
+    # delay one task for a little bit
+    for i in range(4):
+        pc._login_backoff.increment_backoff()
+    task1 = asyncio.create_task(login_task())
+    task2 = asyncio.create_task(login_task())
+    await task2
+    assert pc.login_in_progress
+    assert not pc.is_connected
+    assert not task1.done()
+    await task1
+    assert not pc.login_in_progress
+    assert pc.is_connected
