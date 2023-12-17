@@ -38,7 +38,7 @@ from pyadtpulse.const import (
 from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
 from pyadtpulse.util import remove_prefix
 
-MOCKED_API_VERSION = "26.0.0-32"
+MOCKED_API_VERSION = "27.0.0-140"
 DEFAULT_SYNC_CHECK = "234532-456432-0"
 
 
