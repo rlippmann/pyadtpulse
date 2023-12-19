@@ -292,10 +292,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
         # parse ADT's convulated html to get sensor status
         with self._site_lock:
             gateway_online = False
-            orbsensors = soup.find("div", id="orbSensorsList")
-            if not orbsensors:
-                return None
-            for row in orbsensors.find_all("tr", {"class": "p_listRow"}):
+            for row in soup.find_all("tr", {"class": "p_listRow"}):
                 temp = row.find("div", {"class": "p_grayNormalText"})
                 # v26 and lower: temp = row.find("span", {"class": "p_grayNormalText"})
                 if temp is None:
