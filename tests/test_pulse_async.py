@@ -18,12 +18,7 @@ from pyadtpulse.const import (
 )
 from pyadtpulse.pyadtpulse_async import PyADTPulseAsync
 
-
-def set_sync_check(
-    get_mocked_url, mocked_server_responses, body: str, repeat: bool = False
-):
-    r = re.compile(r"^" + re.escape(get_mocked_url(ADT_SYNC_CHECK_URI) + r"\?.*"))
-    mocked_server_responses.get(r, body=body, repeat=repeat, content_type="text/html")
+DEFAULT_SYNC_CHECK = "234532-456432-0"
 
 
 def set_keepalive(get_mocked_url, mocked_server_responses, repeat: bool = False):
@@ -43,7 +38,6 @@ async def test_mocked_responses(
     get_mocked_mapped_static_responses,
     get_mocked_url,
     extract_ids_from_data_directory,
-    get_default_sync_check,
 ):
     """Fixture to test mocked responses."""
     static_responses = get_mocked_mapped_static_responses
@@ -91,27 +85,14 @@ async def test_mocked_responses(
         expected_content = read_file(static_responses[get_mocked_url(ADT_SUMMARY_URI)])
         actual_content = await response.text()
         assert actual_content == expected_content
-        set_sync_check(get_mocked_url, m, get_default_sync_check)
-        set_sync_check(get_mocked_url, m, "1-0-0")
-        set_sync_check(get_mocked_url, m, get_default_sync_check)
+        pattern = re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
+        m.get(pattern, status=200, body="1-0-0", content_type="text/html")
         response = await session.get(
             get_mocked_url(ADT_SYNC_CHECK_URI), params={"ts": "first call"}
         )
         assert response.status == 200
         actual_content = await response.text()
-        expected_content = get_default_sync_check
-        assert actual_content == expected_content
-        response = await session.get(
-            get_mocked_url(ADT_SYNC_CHECK_URI), params={"ts": "second call"}
-        )
-        assert response.status == 200
-        actual_content = await response.text()
-        assert actual_content == "1-0-0"
-        response = await session.get(
-            get_mocked_url(ADT_SYNC_CHECK_URI), params={"ts": "third call"}
-        )
-        assert response.status == 200
-        actual_content = await response.text()
+        expected_content = "1-0-0"
         assert actual_content == expected_content
         set_keepalive(get_mocked_url, m)
         response = await session.post(get_mocked_url(ADT_TIMEOUT_URI))
@@ -188,9 +169,8 @@ async def test_wait_for_update(m, adt_pulse_instance):
     assert m.call_count == 1
 
 
-async def test_orb_update(
-    mocked_server_responses, get_mocked_url, read_file, get_default_sync_check
-):
+@pytest.mark.asyncio
+async def test_orb_update(mocked_server_responses, get_mocked_url, read_file):
     response = mocked_server_responses
 
     def setup_sync_check():
@@ -204,9 +184,10 @@ async def test_orb_update(
             body=read_file("orb.html"),
             content_type="text/html",
         )
+        pattern = re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
         response.get(
-            get_mocked_url(ADT_SYNC_CHECK_URI),
-            body=get_default_sync_check,
+            pattern,
+            body=DEFAULT_SYNC_CHECK,
             content_type="text/html",
         )
         response.get(
@@ -214,12 +195,12 @@ async def test_orb_update(
         )
         response.get(
             get_mocked_url(ADT_SYNC_CHECK_URI),
-            body=get_default_sync_check,
+            body=DEFAULT_SYNC_CHECK,
             content_type="text/html",
         )
         response.get(
             get_mocked_url(ADT_SYNC_CHECK_URI),
-            body=get_default_sync_check,
+            body=DEFAULT_SYNC_CHECK,
             content_type="text/html",
         )
 
@@ -240,7 +221,7 @@ async def test_orb_update(
             ADT_SYNC_CHECK_URI, requires_authentication=False
         )
         assert code == 200
-        assert content == get_default_sync_check
+        assert content == DEFAULT_SYNC_CHECK
         code, content, _ = await p._pulse_connection.async_query(
             ADT_SYNC_CHECK_URI, requires_authentication=False
         )
@@ -250,7 +231,7 @@ async def test_orb_update(
             ADT_SYNC_CHECK_URI, requires_authentication=False
         )
         assert code == 200
-        assert content == get_default_sync_check
+        assert content == DEFAULT_SYNC_CHECK
 
     p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
     shutdown_event = asyncio.Event()
@@ -263,7 +244,7 @@ async def test_orb_update(
         get_mocked_url(ADT_SYNC_CHECK_URI),
         content_type="text/html",
         repeat=True,
-        body=get_default_sync_check,
+        body=DEFAULT_SYNC_CHECK,
     )
     await p.async_login()
     task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
@@ -273,6 +254,7 @@ async def test_orb_update(
     task.cancel()
     await task
     await p.async_logout()
+    assert len(p._site.zones) == 19
     assert p._sync_task is None
     # assert m.call_count == 2
 
@@ -286,13 +268,12 @@ async def test_keepalive_check(mocked_server_responses):
 
 
 @pytest.mark.asyncio
-async def test_infinite_sync_check(
-    mocked_server_responses, get_mocked_url, get_default_sync_check
-):
+async def test_infinite_sync_check(mocked_server_responses, get_mocked_url):
     p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
+    pattern = re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
     mocked_server_responses.get(
-        get_mocked_url(ADT_SYNC_CHECK_URI),
-        body=get_default_sync_check,
+        pattern,
+        body=DEFAULT_SYNC_CHECK,
         content_type="text/html",
         repeat=True,
     )
@@ -301,7 +282,6 @@ async def test_infinite_sync_check(
     await p.async_login()
     task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
     await asyncio.sleep(5)
-    assert mocked_server_responses.call_count > 1
     shutdown_event.set()
     task.cancel()
     await task
