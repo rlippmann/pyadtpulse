@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 from pyadtpulse.const import (
     ADT_LOGIN_URI,
+    ADT_MFA_FAIL_URI,
     ADT_SUMMARY_URI,
     DEFAULT_API_HOST,
     ConnectionFailureReason,
@@ -90,6 +91,7 @@ async def test_multiple_login(
     assert mock_sleep.call_count == 0
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
+    assert pc._connection_status.get_backoff().backoff_count == 0
     assert pc._connection_status.authenticated_flag.is_set()
     assert (
         pc._connection_status.connection_failure_reason
@@ -101,10 +103,59 @@ async def test_multiple_login(
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     assert pc._connection_status.get_backoff().backoff_count == 1
-    assert pc._connection_status.authenticated_flag.is_set()
+    assert not pc._connection_status.authenticated_flag.is_set()
+    assert not pc.is_connected
     assert (
         pc._connection_status.connection_failure_reason
         == ConnectionFailureReason.SERVER_ERROR
+    )
+    await pc.async_do_login_query()
+    assert pc._login_backoff.backoff_count == 0
+    # 2 retries first time, 3 the second
+    assert mock_sleep.call_count == MAX_RETRIES - 1 + MAX_RETRIES
+    assert pc.login_in_progress is False
+
+    assert pc._connection_status.get_backoff().backoff_count == 2
+    assert not pc._connection_status.authenticated_flag.is_set()
+    assert not pc.is_connected
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.SERVER_ERROR
+    )
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI),
+        status=302,
+        headers={
+            "Location": get_mocked_url(ADT_SUMMARY_URI),
+        },
+    )
+    await pc.async_do_login_query()
+    # will do a backoff, then query
+    assert mock_sleep.call_count == MAX_RETRIES - 1 + MAX_RETRIES + 1
+    assert pc.login_in_progress is False
+    assert pc._login_backoff.backoff_count == 0
+    assert pc._connection_status.authenticated_flag.is_set()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.NO_FAILURE
+    )
+
+    mocked_server_responses.post(
+        get_mocked_url(ADT_LOGIN_URI),
+        status=302,
+        headers={
+            "Location": get_mocked_url(ADT_SUMMARY_URI),
+        },
+    )
+    await pc.async_do_login_query()
+    # shouldn't sleep at all
+    assert mock_sleep.call_count == MAX_RETRIES - 1 + MAX_RETRIES + 1
+    assert pc.login_in_progress is False
+    assert pc._login_backoff.backoff_count == 0
+    assert pc._connection_status.authenticated_flag.is_set()
+    assert (
+        pc._connection_status.connection_failure_reason
+        == ConnectionFailureReason.NO_FAILURE
     )
 
 
@@ -118,6 +169,8 @@ async def test_account_lockout(
     assert mock_sleep.call_count == 0
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
+    assert pc.is_connected
+    assert pc._connection_status.authenticated_flag.is_set()
     mocked_server_responses.post(
         get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_locked.html")
     )
@@ -126,6 +179,10 @@ async def test_account_lockout(
         pc._connection_status.connection_failure_reason
         == ConnectionFailureReason.ACCOUNT_LOCKED
     )
+    # won't sleep yet
+    assert not pc.is_connected
+    assert not pc._connection_status.authenticated_flag.is_set()
+    # don't set backoff on locked account, just set expiration time on backoff
     assert pc._login_backoff.backoff_count == 0
     assert mock_sleep.call_count == 0
     mocked_server_responses.post(
@@ -142,6 +199,8 @@ async def test_account_lockout(
     )
     assert mock_sleep.call_count == 1
     assert mock_sleep.call_args_list[0][0][0] == 60 * 30
+    assert pc.is_connected
+    assert pc._connection_status.authenticated_flag.is_set()
     freeze_time_to_now.tick(delta=datetime.timedelta(seconds=60 * 30 + 1))
     mocked_server_responses.post(
         get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_locked.html")
@@ -212,7 +271,9 @@ async def test_mfa_failure(
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("mfa.html")
+        get_mocked_url(ADT_LOGIN_URI),
+        status=307,
+        headers={"Location": get_mocked_url(ADT_MFA_FAIL_URI)},
     )
     await pc.async_do_login_query()
     assert (
@@ -222,12 +283,14 @@ async def test_mfa_failure(
     assert pc._login_backoff.backoff_count == 1
     assert mock_sleep.call_count == 0
     mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("mfa.html")
+        get_mocked_url(ADT_LOGIN_URI),
+        status=307,
+        headers={"Location": get_mocked_url(ADT_MFA_FAIL_URI)},
     )
     await pc.async_do_login_query()
     assert (
         pc._connection_status.connection_failure_reason
-        == ConnectionFailureReason.INVALID_CREDENTIALS
+        == ConnectionFailureReason.MFA_REQUIRED
     )
     assert pc._login_backoff.backoff_count == 2
     assert mock_sleep.call_count == 1

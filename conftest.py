@@ -28,6 +28,7 @@ from pyadtpulse.const import (
     ADT_GATEWAY_URI,
     ADT_LOGIN_URI,
     ADT_LOGOUT_URI,
+    ADT_MFA_FAIL_URI,
     ADT_ORB_URI,
     ADT_SUMMARY_URI,
     ADT_SYNC_CHECK_URI,
@@ -155,6 +156,7 @@ def get_mocked_mapped_static_responses(get_mocked_url) -> dict[str, str]:
         get_mocked_url(ADT_SUMMARY_URI): "summary.html",
         get_mocked_url(ADT_SYSTEM_URI): "system.html",
         get_mocked_url(ADT_GATEWAY_URI): "gateway.html",
+        get_mocked_url(ADT_MFA_FAIL_URI): "mfa.html",
     }
 
 

@@ -24,7 +24,7 @@ from .pulse_backoff import PulseBackoff
 from .pulse_connection_properties import PulseConnectionProperties
 from .pulse_connection_status import PulseConnectionStatus
 from .pulse_query_manager import PulseQueryManager
-from .util import handle_response, make_soup, set_debug_lock
+from .util import make_soup, set_debug_lock
 
 LOG = logging.getLogger(__name__)
 
@@ -106,17 +106,6 @@ class PulseConnection(PulseQueryManager):
             """Check response for errors.
 
             Will handle setting backoffs."""
-            if not handle_response(
-                response[0],
-                response[2],
-                logging.ERROR,
-                "Error encountered communicating with Pulse site on login",
-            ):
-                self._connection_status.connection_failure_reason = (
-                    ConnectionFailureReason.UNKNOWN
-                )
-                self._login_backoff.increment_backoff()
-                return None
 
             soup = make_soup(
                 response[0],
@@ -160,7 +149,8 @@ class PulseConnection(PulseQueryManager):
                         fail_reason = ConnectionFailureReason.MFA_REQUIRED
                 LOG.error("Error logging into pulse: %s", fail_reason.value[1])
                 self._connection_status.connection_failure_reason = fail_reason
-                self._login_backoff.increment_backoff()
+                if fail_reason != ConnectionFailureReason.ACCOUNT_LOCKED:
+                    self._login_backoff.increment_backoff()
                 return None
             return soup
 
@@ -183,14 +173,9 @@ class PulseConnection(PulseQueryManager):
                 timeout=timeout,
                 requires_authentication=False,
             )
-            if not handle_response(
-                response[0],
-                response[2],
-                logging.ERROR,
-                "Error encountered during ADT login POST",
+            if self._connection_status.connection_failure_reason != (
+                ConnectionFailureReason.NO_FAILURE
             ):
-                # FIXME: should we let the query manager handle the backoff?
-                self._login_backoff.increment_backoff()
                 self.login_in_progress = False
                 return None
         except Exception as e:  # pylint: disable=broad-except
