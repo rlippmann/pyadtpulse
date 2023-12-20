@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 from typeguard import typechecked
 from yarl import URL
 
-from .const import (
-    ADT_HTTP_BACKGROUND_URIS,
-    ADT_ORB_URI,
-    ADT_OTHER_HTTP_ACCEPT_HEADERS,
-    ConnectionFailureReason,
+from .const import ADT_HTTP_BACKGROUND_URIS, ADT_ORB_URI, ADT_OTHER_HTTP_ACCEPT_HEADERS
+from .exceptions import (
+    PulseClientConnectionError,
+    PulseServerConnectionError,
+    PulseServiceTemporarilyUnavailableError,
 )
 from .pulse_backoff import PulseBackoff
 from .pulse_connection_properties import PulseConnectionProperties
@@ -36,24 +36,7 @@ RECOVERABLE_ERRORS = {
     HTTPStatus.BAD_GATEWAY,
     HTTPStatus.GATEWAY_TIMEOUT,
 }
-RETRY_LATER_ERRORS = frozenset(
-    {HTTPStatus.SERVICE_UNAVAILABLE, HTTPStatus.TOO_MANY_REQUESTS}
-)
-RETRY_LATER_CONNECTION_STATUSES = frozenset(
-    {
-        reason
-        for reason in ConnectionFailureReason
-        if reason.value[0] in RETRY_LATER_ERRORS
-    }
-)
-CHANGEABLE_CONNECTION_STATUSES = frozenset(
-    RETRY_LATER_CONNECTION_STATUSES
-    | {
-        ConnectionFailureReason.NO_FAILURE,
-        ConnectionFailureReason.CLIENT_ERROR,
-        ConnectionFailureReason.SERVER_ERROR,
-    }
-)
+
 MAX_RETRIES = 3
 
 
@@ -120,6 +103,9 @@ class PulseQueryManager:
 
         Returns:
             None.
+
+        Raises:
+            PulseServiceTemporarilyUnavailableError: If the server returns a "Retry-After" header.
         """
         now = time()
         if retry_after.isnumeric():
@@ -133,58 +119,56 @@ class PulseQueryManager:
             except ValueError:
                 return
         description = self._get_http_status_description(code)
-        LOG.warning(
-            "Task %s received Retry-After %s due to %s",
-            current_task(),
-            retval,
-            description,
+        message = (
+            f"Task {current_task()} received Retry-After {retval} due to {description}"
         )
-        # don't set the retry_after if it is in the past
-        if retval > 0:
-            self._connection_status.retry_after = now + retval
+
+        raise PulseServiceTemporarilyUnavailableError(
+            message, self._connection_status.get_backoff(), retval
+        )
 
     @typechecked
     def _handle_http_errors(
         self, return_value: tuple[int, str | None, URL | None, str | None]
     ) -> None:
-        failure_reason = ConnectionFailureReason.SERVER_ERROR
+        """Handle HTTP errors.
+
+        Parameters:
+            return_value (tuple[int, str | None, URL | None, str | None]):
+                The return value from _handle_query_response.
+
+        Raises:
+            PulseServerConnectionError: If the server returns an error code.
+            PulseServiceTemporarilyUnavailableError: If the server returns a
+                Retry-After header."""
         if return_value[0] is not None and return_value[3] is not None:
             self._set_retry_after(
                 return_value[0],
                 return_value[3],
             )
-        if return_value[0] == HTTPStatus.TOO_MANY_REQUESTS:
-            failure_reason = ConnectionFailureReason.TOO_MANY_REQUESTS
-        if return_value[0] == HTTPStatus.SERVICE_UNAVAILABLE:
-            failure_reason = ConnectionFailureReason.SERVICE_UNAVAILABLE
-        self._update_connection_status(failure_reason)
+        raise PulseServerConnectionError(
+            f"HTTP error {return_value[0]}: {return_value[1]} connecting to {return_value[2]}",
+            self._connection_status.get_backoff(),
+        )
 
     @typechecked
-    def _handle_network_errors(self, e: Exception) -> ConnectionFailureReason:
+    def _handle_network_errors(self, e: Exception) -> None:
+        new_exception: PulseClientConnectionError | PulseServerConnectionError = (
+            PulseClientConnectionError(str(e), self._connection_status.get_backoff())
+        )
         if isinstance(e, (ServerConnectionError, ServerTimeoutError)):
-            return ConnectionFailureReason.SERVER_ERROR
+            new_exception = PulseServerConnectionError(
+                str(e), self._connection_status.get_backoff()
+            )
         if (
             isinstance(e, (ClientConnectionError))
             and "Connection refused" in str(e)
             or ("timed out") in str(e)
         ):
-            return ConnectionFailureReason.SERVER_ERROR
-        return ConnectionFailureReason.CLIENT_ERROR
-
-    def _update_connection_status(
-        self, failure_reason: ConnectionFailureReason
-    ) -> None:
-        """Update connection status.
-
-        Will also increment or reset the backoff.
-        """
-        if failure_reason not in CHANGEABLE_CONNECTION_STATUSES:
-            return
-        if failure_reason == ConnectionFailureReason.NO_FAILURE:
-            self._connection_status.reset_backoff()
-        elif failure_reason not in (RETRY_LATER_CONNECTION_STATUSES):
-            self._connection_status.increment_backoff()
-        self._connection_status.connection_failure_reason = failure_reason
+            new_exception = PulseServerConnectionError(
+                str(e), self._connection_status.get_backoff()
+            )
+        raise new_exception
 
     @typechecked
     async def async_query(
@@ -216,6 +200,11 @@ class PulseQueryManager:
         Returns:
             tuple with integer return code, optional response text, and optional URL of
             response
+
+        Raises:
+            PulseClientConnectionError: If the client cannot connect
+            PulseServerConnectionError: If there is a server error
+            PulseServiceTemporarilyUnavailableError: If the server returns a Retry-After header
         """
 
         async def setup_query():
@@ -264,7 +253,6 @@ class PulseQueryManager:
             threshold=1,
             debug_locks=self._debug_locks,
         )
-        failure_reason = ConnectionFailureReason.NO_FAILURE
         while retry < MAX_RETRIES:
             try:
                 await query_backoff.wait_for_backoff()
@@ -294,11 +282,9 @@ class PulseQueryManager:
                             response.raise_for_status()
                         continue
                     response.raise_for_status()
-                    failure_reason = ConnectionFailureReason.NO_FAILURE
                     break
             except ClientResponseError:
                 self._handle_http_errors(return_value)
-                return (return_value[0], return_value[1], return_value[2])
             except (
                 ClientConnectorError,
                 ServerTimeoutError,
@@ -312,12 +298,12 @@ class PulseQueryManager:
                     url,
                     exc_info=True,
                 )
-                failure_reason = self._handle_network_errors(ex)
+                if retry == MAX_RETRIES:
+                    self._handle_network_errors(ex)
                 continue
 
-        if failure_reason != ConnectionFailureReason.NO_FAILURE:
-            LOG.debug("Exceeded max retries of %d, giving up", MAX_RETRIES)
-        self._update_connection_status(failure_reason)
+        # success
+        self._connection_status.get_backoff().reset_backoff()
         return (return_value[0], return_value[1], return_value[2])
 
     async def query_orb(self, level: int, error_message: str) -> BeautifulSoup | None:
@@ -329,6 +315,11 @@ class PulseQueryManager:
 
         Returns:
             Optional[BeautifulSoup]: A Beautiful Soup object, or None if failure
+
+        Raises:
+            PulseClientConnectionError: If the client cannot connect
+            PulseServerConnectionError: If there is a server error
+            PulseServiceTemporarilyUnavailableError: If the server returns a Retry-After header
         """
         code, response, url = await self.async_query(
             ADT_ORB_URI,
@@ -379,8 +370,7 @@ class PulseQueryManager:
                 ex.args,
                 exc_info=True,
             )
-            self._update_connection_status(self._handle_network_errors(ex))
-            return
+            self._handle_network_errors(ex)
         version = self._connection_properties.get_api_version(str(response_values[2]))
         if version is not None:
             self._connection_properties.api_version = version
@@ -389,9 +379,3 @@ class PulseQueryManager:
                 self._connection_properties.api_version,
                 self._connection_properties.service_host,
             )
-            if (
-                self._connection_status.connection_failure_reason
-                != ConnectionFailureReason.NO_FAILURE
-            ):
-                self._update_connection_status(ConnectionFailureReason.NO_FAILURE)
-            return

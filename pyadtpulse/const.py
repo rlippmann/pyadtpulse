@@ -1,8 +1,6 @@
 """Constants for pyadtpulse."""
 __version__ = "1.1.4b4"
 
-from enum import Enum
-from http import HTTPStatus
 
 DEFAULT_API_HOST = "https://portal.adtpulse.com"
 API_HOST_CA = "https://portal-ca.adtpulse.com"  # Canada
@@ -76,32 +74,3 @@ ADT_SENSOR_MOTION = "motion"
 ADT_SENSOR_SMOKE = "smoke"
 ADT_SENSOR_CO = "co"
 ADT_SENSOR_ALARM = "alarm"
-
-
-class ConnectionFailureReason(Enum):
-    """Reason for connection failure."""
-
-    NO_FAILURE = 0, "No Failure"
-    UNKNOWN = 1, "Unknown Failure"
-    ACCOUNT_LOCKED = 2, "Account Locked"
-    INVALID_CREDENTIALS = 3, "Invalid Credentials"
-    MFA_REQUIRED = (
-        4,
-        "MFA Required",
-    )
-    CLIENT_ERROR = (
-        5,
-        "Client Error",
-    )
-    SERVER_ERROR = (
-        6,
-        "Server Error",
-    )
-    SERVICE_UNAVAILABLE = (
-        HTTPStatus.SERVICE_UNAVAILABLE.value,
-        HTTPStatus.SERVICE_UNAVAILABLE.description,
-    )
-    TOO_MANY_REQUESTS = (
-        HTTPStatus.TOO_MANY_REQUESTS.value,
-        HTTPStatus.TOO_MANY_REQUESTS.description,
-    )

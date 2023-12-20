@@ -26,7 +26,6 @@ class PyADTPulseProperties:
         "_login_exception",
         "_relogin_interval",
         "_keepalive_interval",
-        "_update_succeded",
         "_detailed_debug_logging",
         "_site",
     )
@@ -77,7 +76,6 @@ class PyADTPulseProperties:
         self.keepalive_interval = keepalive_interval
         self.relogin_interval = relogin_interval
         self._detailed_debug_logging = detailed_debug_logging
-        self._update_succeded = True
 
     @property
     def relogin_interval(self) -> int:
@@ -161,10 +159,9 @@ class PyADTPulseProperties:
                 )
             return self._site
 
-    def set_update_status(self, value: bool) -> None:
-        """Sets update failed, sets updates_exist to notify wait_for_update."""
+    def set_update_status(self) -> None:
+        """Sets updates_exist to notify wait_for_update."""
         with self._pp_attribute_lock:
-            self._update_succeded = value
             self.updates_exist.set()
 
     @property
@@ -172,14 +169,3 @@ class PyADTPulseProperties:
         """Check if updates exist."""
         with self._pp_attribute_lock:
             return self._updates_exist
-
-    def check_update_succeeded(self) -> bool:
-        """Check if update succeeded, clears the update event and
-        resets _update_succeeded.
-        """
-        with self._pp_attribute_lock:
-            old_update_succeded = self._update_succeded
-            self._update_succeded = True
-            if self.updates_exist.is_set():
-                self.updates_exist.clear()
-            return old_update_succeded

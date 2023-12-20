@@ -9,6 +9,12 @@ from bs4 import BeautifulSoup, ResultSet
 from typeguard import typechecked
 
 from .const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_GATEWAY_URI, ADT_SYSTEM_URI
+from .exceptions import (
+    PulseClientConnectionError,
+    PulseGatewayOfflineError,
+    PulseServerConnectionError,
+    PulseServiceTemporarilyUnavailableError,
+)
 from .pulse_connection import PulseConnection
 from .site_properties import ADTPulseSiteProperties
 from .util import make_soup, parse_pulse_datetime, remove_prefix
@@ -263,6 +269,9 @@ class ADTPulseSite(ADTPulseSiteProperties):
         Returns:
             ADTPulseZones: a dictionary of zones with status
             None if an error occurred
+
+        Raises:
+            PulseGatewayOffline: If the gateway is offline.
         """
         with self._site_lock:
             if self._zones is None:
@@ -271,14 +280,25 @@ class ADTPulseSite(ADTPulseSiteProperties):
             LOG.debug("fetching zones for site %s", self._id)
             if not soup:
                 # call ADT orb uri
-                soup = await self._pulse_connection.query_orb(
-                    logging.WARNING, "Could not fetch zone status updates"
-                )
+                try:
+                    soup = await self._pulse_connection.query_orb(
+                        logging.WARNING, "Could not fetch zone status updates"
+                    )
+                except (
+                    PulseServiceTemporarilyUnavailableError,
+                    PulseServerConnectionError,
+                    PulseClientConnectionError,
+                ) as ex:
+                    LOG.warning(
+                        "Could not fetch zone status updates from orb: %s", ex.args[0]
+                    )
+                    return None
             if soup is None:
                 return None
-            return self.update_zone_from_soup(soup)
+            self.update_zone_from_soup(soup)
+        return self._zones
 
-    def update_zone_from_soup(self, soup: BeautifulSoup) -> ADTPulseZones | None:
+    def update_zone_from_soup(self, soup: BeautifulSoup) -> None:
         """
         Updates the zone information based on the provided BeautifulSoup object.
 
@@ -286,8 +306,10 @@ class ADTPulseSite(ADTPulseSiteProperties):
             soup (BeautifulSoup): The BeautifulSoup object containing the parsed HTML.
 
         Returns:
-            Optional[ADTPulseZones]: The updated ADTPulseZones object, or None if
-            no zones exist.
+            None
+
+        Raises:
+            PulseGatewayOffline: If the gateway is offline.
         """
         # parse ADT's convulated html to get sensor status
         with self._site_lock:
@@ -369,7 +391,13 @@ class ADTPulseSite(ADTPulseSiteProperties):
                 )
             self._gateway.is_online = gateway_online
             self._last_updated = int(time())
-            return self._zones
+            if not gateway_online:
+                LOG.warning("Gateway is offline")
+                raise PulseGatewayOfflineError(
+                    "Gateway is offline", self._gateway.backoff
+                )
+            else:
+                self._gateway.backoff.reset_backoff()
 
     async def _async_update_zones(self) -> list[ADTPulseFlattendZone] | None:
         """Update zones asynchronously.

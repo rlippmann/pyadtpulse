@@ -3,7 +3,6 @@ from asyncio import Event
 
 from typeguard import typechecked
 
-from .const import ConnectionFailureReason
 from .pulse_backoff import PulseBackoff
 from .util import set_debug_lock
 
@@ -13,7 +12,6 @@ class PulseConnectionStatus:
 
     __slots__ = (
         "_backoff",
-        "_connection_failure_reason",
         "_authenticated_flag",
         "_pcs_attribute_lock",
     )
@@ -27,7 +25,6 @@ class PulseConnectionStatus:
             "Connection Status",
             initial_backoff_interval=1,
         )
-        self._connection_failure_reason = ConnectionFailureReason.NO_FAILURE
         self._authenticated_flag = Event()
 
     @property
@@ -35,19 +32,6 @@ class PulseConnectionStatus:
         """Get the authenticated flag."""
         with self._pcs_attribute_lock:
             return self._authenticated_flag
-
-    @property
-    def connection_failure_reason(self) -> ConnectionFailureReason:
-        """Get the connection failure reason."""
-        with self._pcs_attribute_lock:
-            return self._connection_failure_reason
-
-    @connection_failure_reason.setter
-    @typechecked
-    def connection_failure_reason(self, reason: ConnectionFailureReason) -> None:
-        """Set the connection failure reason."""
-        with self._pcs_attribute_lock:
-            self._connection_failure_reason = reason
 
     @property
     def retry_after(self) -> float:

@@ -12,12 +12,14 @@ from bs4 import BeautifulSoup
 from typeguard import typechecked
 from yarl import URL
 
-from .const import (
-    ADT_LOGIN_URI,
-    ADT_LOGOUT_URI,
-    ADT_MFA_FAIL_URI,
-    ADT_SUMMARY_URI,
-    ConnectionFailureReason,
+from .const import ADT_LOGIN_URI, ADT_LOGOUT_URI, ADT_MFA_FAIL_URI, ADT_SUMMARY_URI
+from .exceptions import (
+    PulseAccountLockedError,
+    PulseAuthenticationError,
+    PulseClientConnectionError,
+    PulseMFARequiredError,
+    PulseServerConnectionError,
+    PulseServiceTemporarilyUnavailableError,
 )
 from .pulse_authentication_properties import PulseAuthenticationProperties
 from .pulse_backoff import PulseBackoff
@@ -85,10 +87,12 @@ class PulseConnection(PulseQueryManager):
         Returns:
             soup: Optional[BeautifulSoup]: A BeautifulSoup object containing
             summary.jsp, or None if failure
-            soup: Optional[BeautifulSoup]: A BeautifulSoup object containing
-            summary.jsp, or None if failure
         Raises:
             ValueError: if login parameters are not correct
+            PulseAuthenticationError: if login fails due to incorrect username/password
+            PulseServerConnectionError: if login fails due to server error
+            PulseAccountLockedError: if login fails due to account locked
+            PulseMFARequiredError: if login fails due to MFA required
         """
 
         def extract_seconds_from_string(s: str) -> int:
@@ -102,10 +106,10 @@ class PulseConnection(PulseQueryManager):
 
         def check_response(
             response: tuple[int, str | None, URL | None]
-        ) -> BeautifulSoup | None:
+        ) -> BeautifulSoup:
             """Check response for errors.
 
-            Will handle setting backoffs."""
+            Will handle setting backoffs and raising exceptions."""
 
             soup = make_soup(
                 response[0],
@@ -114,9 +118,12 @@ class PulseConnection(PulseQueryManager):
                 logging.ERROR,
                 "Could not log into ADT Pulse site",
             )
-            # FIXME: should probably raise exceptions here
+            # this probably should have been handled by async_query()
             if soup is None:
-                return None
+                raise PulseServerConnectionError(
+                    f"Could not log into ADT Pulse site: code {response[0]}: URL: {response[2]}, response: {response[1]}",
+                    self._login_backoff,
+                )
             url = self._connection_properties.make_url(ADT_SUMMARY_URI)
             response_url_string = str(response[2])
             if url != response_url_string:
@@ -125,7 +132,10 @@ class PulseConnection(PulseQueryManager):
                 # redirect to mfaSignin.jsp = fingerprint error
                 # locked out = error == "Sign In unsuccessful. Your account has been
                 # locked after multiple sign in attempts.Try again in 30 minutes."
-                fail_reason = ConnectionFailureReason.UNKNOWN
+
+                # these are all failure cases, so just set login_in_progress to False now
+                # before exceptions are raised
+                self._login_in_progress = False
                 url = self._connection_properties.make_url(ADT_LOGIN_URI)
                 if url == response_url_string:
                     error = soup.find("div", {"id": "warnMsgContents"})
@@ -136,22 +146,25 @@ class PulseConnection(PulseQueryManager):
                             if (
                                 retry_after := extract_seconds_from_string(error_text)
                             ) > 0:
-                                self._login_backoff.set_absolute_backoff_time(
-                                    time() + retry_after
+                                raise PulseAccountLockedError(
+                                    f"Pulse account locked {retry_after/60} minutes for too many failed login attempts",
+                                    self._login_backoff,
+                                    retry_after + time(),
                                 )
-                            fail_reason = ConnectionFailureReason.ACCOUNT_LOCKED
                         else:
                             # FIXME: not sure if this is true
-                            fail_reason = ConnectionFailureReason.INVALID_CREDENTIALS
+                            raise PulseAuthenticationError(
+                                error_text, self._login_backoff
+                            )
                 else:
                     url = self._connection_properties.make_url(ADT_MFA_FAIL_URI)
                     if url == response_url_string:
-                        fail_reason = ConnectionFailureReason.MFA_REQUIRED
-                LOG.error("Error logging into pulse: %s", fail_reason.value[1])
-                self._connection_status.connection_failure_reason = fail_reason
-                if fail_reason != ConnectionFailureReason.ACCOUNT_LOCKED:
-                    self._login_backoff.increment_backoff()
-                return None
+                        raise PulseMFARequiredError(
+                            "MFA required to log into Pulse site", self._login_backoff
+                        )
+                # don't know what exactly the error is if we get here
+                self._login_in_progress = False
+                raise PulseAuthenticationError("Unknown error", self._login_backoff)
             return soup
 
         if self.login_in_progress:
@@ -173,20 +186,15 @@ class PulseConnection(PulseQueryManager):
                 timeout=timeout,
                 requires_authentication=False,
             )
-            if self._connection_status.connection_failure_reason != (
-                ConnectionFailureReason.NO_FAILURE
-            ):
-                self.login_in_progress = False
-                return None
-        except Exception as e:  # pylint: disable=broad-except
+        except (
+            PulseClientConnectionError,
+            PulseServerConnectionError,
+            PulseServiceTemporarilyUnavailableError,
+        ) as e:
             LOG.error("Could not log into Pulse site: %s", e)
-            # the query manager will handle the backoff
             self.login_in_progress = False
-            return None
+            raise
         soup = check_response(response)
-        if soup is None:
-            self.login_in_progress = False
-            return None
         self._connection_status.authenticated_flag.set()
         self._authentication_properties.last_login_time = int(time())
         self._login_backoff.reset_backoff()
@@ -204,18 +212,29 @@ class PulseConnection(PulseQueryManager):
         params.update({"networkid": si})
 
         params.update({"partner": "adt"})
-        await self.async_query(
-            ADT_LOGOUT_URI,
-            extra_params=params,
-            timeout=10,
-            requires_authentication=False,
-        )
+        try:
+            await self.async_query(
+                ADT_LOGOUT_URI,
+                extra_params=params,
+                timeout=10,
+                requires_authentication=False,
+            )
+        # FIXME: do we care if this raises exceptions?
+        except (
+            PulseClientConnectionError,
+            PulseServiceTemporarilyUnavailableError,
+            PulseServerConnectionError,
+        ) as e:
+            LOG.debug("Could not logout from Pulse site: %s", e)
         self._connection_status.authenticated_flag.clear()
 
     @property
     def is_connected(self) -> bool:
         """Check if ADT Pulse is connected."""
-        return self._connection_status.authenticated_flag.is_set()
+        return (
+            self._connection_status.authenticated_flag.is_set()
+            and not self._login_in_progress
+        )
 
     def check_sync(self, message: str) -> AbstractEventLoop:
         """Convenience method to check if running from sync context."""
