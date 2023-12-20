@@ -212,7 +212,10 @@ class PyADTPulse(PyADTPulseAsync):
                 self._sync_task = loop.create_task(
                     coro, name=f"{SYNC_CHECK_TASK_NAME}: Sync session"
                 )
-            return self._pulse_properties.check_update_succeeded()
+            if self._pulse_properties.updates_exist.is_set():
+                self._pulse_properties.updates_exist.clear()
+                return True
+            return False
 
     def update(self) -> bool:
         """Update ADT Pulse data.
