@@ -22,6 +22,7 @@ class PulseConnectionProperties:
     __slots__ = (
         "_api_host",
         "_session",
+        "_user_agent",
         "_loop",
         "_api_version",
         "_pci_attribute_lock",
@@ -68,21 +69,21 @@ class PulseConnectionProperties:
         self.debug_locks = debug_locks
         self.detailed_debug_logging = detailed_debug_logging
         self._loop: AbstractEventLoop | None = None
-        self._session = ClientSession()
+        self._session: ClientSession | None = None
         self.service_host = host
         self._api_version = ""
-        self._session.headers.update(ADT_DEFAULT_HTTP_ACCEPT_HEADERS)
-        self._session.headers.update(ADT_DEFAULT_SEC_FETCH_HEADERS)
-        self._session.headers.update({"User-Agent": user_agent})
+        self._user_agent = user_agent
 
     def __del__(self):
         """Destructor for ADTPulseConnection."""
-        if (
-            getattr(self, "_allocated_session", False)
-            and getattr(self, "_session", None) is not None
-            and not self._session.closed
-        ):
+        if self._session is not None and not self._session.closed:
             self._session.detach()
+
+    def _set_headers(self) -> None:
+        if self._session is not None:
+            self._session.headers.update(ADT_DEFAULT_HTTP_ACCEPT_HEADERS)
+            self._session.headers.update(ADT_DEFAULT_SEC_FETCH_HEADERS)
+            self._session.headers.update({"User-Agent": self._user_agent})
 
     @property
     def service_host(self) -> str:
@@ -167,6 +168,9 @@ class PulseConnectionProperties:
     def session(self) -> ClientSession:
         """Get the session."""
         with self._pci_attribute_lock:
+            if self._session is None:
+                self._session = ClientSession()
+            self._set_headers()
             return self._session
 
     @property
@@ -220,4 +224,4 @@ class PulseConnectionProperties:
         with self._pci_attribute_lock:
             if self._session is not None and not self._session.closed:
                 await self._session.close()
-            self._session = ClientSession()
+            self._session = None
