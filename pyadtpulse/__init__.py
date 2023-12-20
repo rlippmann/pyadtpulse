@@ -15,7 +15,7 @@ from .const import (
     DEFAULT_API_HOST,
 )
 from .pyadtpulse_async import SYNC_CHECK_TASK_NAME, PyADTPulseAsync
-from .util import AuthenticationException, DebugRLock, set_debug_lock
+from .util import DebugRLock, set_debug_lock
 
 LOG = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ LOG = logging.getLogger(__name__)
 class PyADTPulse(PyADTPulseAsync):
     """Base object for ADT Pulse service."""
 
-    __slots__ = ("_session_thread", "_p_attribute_lock")
+    __slots__ = ("_session_thread", "_p_attribute_lock", "_login_exception")
 
     def __init__(
         self,
@@ -55,6 +55,7 @@ class PyADTPulse(PyADTPulseAsync):
             detailed_debug_logging,
         )
         self._session_thread: Thread | None = None
+        self._login_exception: Exception | None = None
         if do_login and websession is None:
             self.login()
 
@@ -108,8 +109,14 @@ class PyADTPulse(PyADTPulseAsync):
         the `asyncio.sleep` function. This wait allows the logout process to complete
         before continuing with the synchronization logic.
         """
-        result = await self.async_login()
+        result = False
+        try:
+            result = await self.async_login()
+        except Exception as e:
+            self._login_exception = e
         self._p_attribute_lock.release()
+        if self._login_exception is not None:
+            return
         if result:
             if self._timeout_task is not None:
                 task_list = (self._timeout_task,)
@@ -132,7 +139,7 @@ class PyADTPulse(PyADTPulseAsync):
         """Login to ADT Pulse and generate access token.
 
         Raises:
-            AuthenticationException if could not login
+            Exception from async_login
         """
         self._p_attribute_lock.acquire()
         # probably shouldn't be a daemon thread
@@ -152,7 +159,8 @@ class PyADTPulse(PyADTPulseAsync):
         self._p_attribute_lock.acquire()
         self._p_attribute_lock.release()
         if not thread.is_alive():
-            raise AuthenticationException(self._authentication_properties.username)
+            if self._login_exception is not None:
+                raise self._login_exception
 
     def logout(self) -> None:
         """Log out of ADT Pulse."""

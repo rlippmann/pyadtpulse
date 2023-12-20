@@ -427,9 +427,6 @@ class PyADTPulseAsync:
                 return True
             return False
 
-        def reset_sync_check_exception() -> None:
-            self._sync_check_exception = None
-
         while True:
             try:
                 await self.site.gateway.backoff.wait_for_backoff()
@@ -452,7 +449,6 @@ class PyADTPulseAsync:
                 ) as e:
                     self._set_sync_check_exception(e)
                     continue
-                reset_sync_check_exception()
                 if not handle_response(
                     code, url, logging.WARNING, "Error querying ADT sync"
                 ):
@@ -461,7 +457,8 @@ class PyADTPulseAsync:
                     LOG.warning("Sync check received no response from ADT Pulse site")
                     continue
                 try:
-                    await validate_sync_check_response()
+                    if not await validate_sync_check_response():
+                        continue
                 except (PulseAuthenticationError, PulseMFARequiredError) as ex:
                     self._set_sync_check_exception(ex)
                     LOG.error(
@@ -573,6 +570,7 @@ class PyADTPulseAsync:
                 await asyncio.sleep(0)
 
         await self._pulse_properties.updates_exist.wait()
+        self._pulse_properties.updates_exist.clear()
         if self._sync_check_exception:
             raise self._sync_check_exception
 

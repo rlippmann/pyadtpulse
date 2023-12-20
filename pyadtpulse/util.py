@@ -245,15 +245,3 @@ def set_debug_lock(debug_lock: bool, name: str) -> "RLock | DebugRLock":
     if debug_lock:
         return DebugRLock(name)
     return RLock()
-
-
-class AuthenticationException(RuntimeError):
-    """Raised when a login failed."""
-
-    def __init__(self, username: str):
-        """Create the exception.
-
-        Args:
-            username (str): Username used to login
-        """
-        super().__init__(f"Could not log into ADT site with username {username}")
