@@ -301,7 +301,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
                     zone = int(
                         remove_prefix(
                             temp.get_text(),
-                            "Zone\xa0",
+                            "Zone",
                         )
                     )
                 except ValueError:
