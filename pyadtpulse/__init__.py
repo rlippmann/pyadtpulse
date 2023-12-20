@@ -32,7 +32,6 @@ class PyADTPulse(PyADTPulseAsync):
         fingerprint: str,
         service_host: str = DEFAULT_API_HOST,
         user_agent=ADT_DEFAULT_HTTP_USER_AGENT["User-Agent"],
-        websession: ClientSession | None = None,
         do_login: bool = True,
         debug_locks: bool = False,
         keepalive_interval: int = ADT_DEFAULT_KEEPALIVE_INTERVAL,
@@ -48,7 +47,6 @@ class PyADTPulse(PyADTPulseAsync):
             fingerprint,
             service_host,
             user_agent,
-            websession,
             debug_locks,
             keepalive_interval,
             relogin_interval,
@@ -56,7 +54,7 @@ class PyADTPulse(PyADTPulseAsync):
         )
         self._session_thread: Thread | None = None
         self._login_exception: Exception | None = None
-        if do_login and websession is None:
+        if do_login:
             self.login()
 
     def __repr__(self) -> str:

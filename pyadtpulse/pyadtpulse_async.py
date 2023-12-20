@@ -6,7 +6,6 @@ import time
 from random import randint
 from warnings import warn
 
-from aiohttp import ClientSession
 from bs4 import BeautifulSoup
 from typeguard import typechecked
 from yarl import URL
@@ -69,7 +68,6 @@ class PyADTPulseAsync:
         fingerprint: str,
         service_host: str = DEFAULT_API_HOST,
         user_agent=ADT_DEFAULT_HTTP_USER_AGENT["User-Agent"],
-        websession: ClientSession | None = None,
         debug_locks: bool = False,
         keepalive_interval: int = ADT_DEFAULT_KEEPALIVE_INTERVAL,
         relogin_interval: int = ADT_DEFAULT_RELOGIN_INTERVAL,
@@ -85,8 +83,6 @@ class PyADTPulseAsync:
                               https://portal-ca.adtpulse.com
             user_agent (str, optional): User Agent.
                          Defaults to ADT_DEFAULT_HTTP_HEADERS["User-Agent"].
-            websession (ClientSession, optional): an initialized
-                        aiohttp.ClientSession to use, defaults to None
             debug_locks: (bool, optional): use debugging locks
                         Defaults to False
             keepalive_interval (int, optional): number of minutes between
@@ -101,7 +97,7 @@ class PyADTPulseAsync:
             debug_locks, "pyadtpulse.pa_attribute_lock"
         )
         self._pulse_connection_properties = PulseConnectionProperties(
-            service_host, websession, user_agent, detailed_debug_logging, debug_locks
+            service_host, user_agent, detailed_debug_logging, debug_locks
         )
         self._authentication_properties = PulseAuthenticationProperties(
             username=username,

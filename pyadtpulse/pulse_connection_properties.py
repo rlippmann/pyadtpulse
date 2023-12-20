@@ -21,7 +21,6 @@ class PulseConnectionProperties:
 
     __slots__ = (
         "_api_host",
-        "_allocated_session",
         "_session",
         "_loop",
         "_api_version",
@@ -58,7 +57,6 @@ class PulseConnectionProperties:
     def __init__(
         self,
         host: str,
-        session: ClientSession | None = None,
         user_agent=ADT_DEFAULT_HTTP_USER_AGENT["User-Agent"],
         detailed_debug_logging=False,
         debug_locks=False,
@@ -69,13 +67,8 @@ class PulseConnectionProperties:
         )
         self.debug_locks = debug_locks
         self.detailed_debug_logging = detailed_debug_logging
-        self._allocated_session = False
         self._loop: AbstractEventLoop | None = None
-        if session is None:
-            self._allocated_session = True
-            self._session = ClientSession()
-        else:
-            self._session = session
+        self._session = ClientSession()
         self.service_host = host
         self._api_version = ""
         self._session.headers.update(ADT_DEFAULT_HTTP_ACCEPT_HEADERS)
@@ -221,3 +214,10 @@ class PulseConnectionProperties:
         """
         with self._pci_attribute_lock:
             return f"{self._api_host}{API_PREFIX}{self._api_version}{uri}"
+
+    async def clear_session(self):
+        """Clear the session."""
+        with self._pci_attribute_lock:
+            if self._session is not None and not self._session.closed:
+                await self._session.close()
+            self._session = ClientSession()

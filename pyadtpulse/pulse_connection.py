@@ -178,6 +178,7 @@ class PulseConnection(PulseQueryManager):
             "fingerprint": self._authentication_properties.fingerprint,
         }
         await self._login_backoff.wait_for_backoff()
+        await self._connection_properties.clear_session()
         try:
             response = await self.async_query(
                 ADT_LOGIN_URI,
