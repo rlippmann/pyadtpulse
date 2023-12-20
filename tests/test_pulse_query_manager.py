@@ -9,7 +9,12 @@ from aiohttp import client_exceptions
 from bs4 import BeautifulSoup
 
 from conftest import MOCKED_API_VERSION
-from pyadtpulse.const import ADT_ORB_URI, DEFAULT_API_HOST, ConnectionFailureReason
+from pyadtpulse.const import ADT_ORB_URI, DEFAULT_API_HOST
+from pyadtpulse.exceptions import (
+    PulseClientConnectionError,
+    PulseServerConnectionError,
+    PulseServiceTemporarilyUnavailableError,
+)
 from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
 from pyadtpulse.pulse_connection_status import PulseConnectionStatus
 from pyadtpulse.pulse_query_manager import MAX_RETRIES, PulseQueryManager
@@ -31,12 +36,11 @@ async def test_fetch_version_fail(mock_server_down):
     s = PulseConnectionStatus()
     cp = PulseConnectionProperties(DEFAULT_API_HOST)
     p = PulseQueryManager(s, cp)
-    await p.async_fetch_version()
-    assert s.connection_failure_reason == ConnectionFailureReason.SERVER_ERROR
+    with pytest.raises(PulseServerConnectionError):
+        await p.async_fetch_version()
     assert s.get_backoff().backoff_count == 1
     with pytest.raises(ValueError):
         await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.SERVER_ERROR
     assert s.get_backoff().backoff_count == 2
     assert s.get_backoff().get_current_backoff_interval() == 2.0
 
@@ -47,16 +51,14 @@ async def test_fetch_version_eventually_succeeds(mock_server_temporarily_down):
     s = PulseConnectionStatus()
     cp = PulseConnectionProperties(DEFAULT_API_HOST)
     p = PulseQueryManager(s, cp)
-    await p.async_fetch_version()
-    assert s.connection_failure_reason == ConnectionFailureReason.SERVER_ERROR
+    with pytest.raises(PulseServerConnectionError):
+        await p.async_fetch_version()
     assert s.get_backoff().backoff_count == 1
     with pytest.raises(ValueError):
         await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.SERVER_ERROR
     assert s.get_backoff().backoff_count == 2
     assert s.get_backoff().get_current_backoff_interval() == 2.0
     await p.async_fetch_version()
-    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
     assert s.get_backoff().backoff_count == 0
 
 
@@ -88,10 +90,9 @@ async def test_query_orb(
     assert task.result() == BeautifulSoup(orb_file, "html.parser")
     assert mock_sleep.call_count == 1  # from the asyncio.sleep call above
     mocked_server_responses.get(cp.make_url(ADT_ORB_URI), status=404)
-    result = await query_orb_task()
-    assert result is None
+    with pytest.raises(PulseServerConnectionError):
+        result = await query_orb_task()
     assert mock_sleep.call_count == 1
-    assert s.connection_failure_reason == ConnectionFailureReason.SERVER_ERROR
     assert s.get_backoff().backoff_count == 1
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI), status=200, content_type="text/html", body=orb_file
@@ -99,7 +100,6 @@ async def test_query_orb(
     result = await query_orb_task()
     assert result == BeautifulSoup(orb_file, "html.parser")
     assert mock_sleep.call_count == 2
-    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
 
 
 @pytest.mark.asyncio
@@ -124,8 +124,8 @@ async def test_retry_after(
         status=429,
         headers={"Retry-After": str(retry_after_time)},
     )
-    await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.TOO_MANY_REQUESTS
+    with pytest.raises(PulseServiceTemporarilyUnavailableError):
+        await p.async_query(ADT_ORB_URI, requires_authentication=False)
     assert mock_sleep.call_count == 0
     # make sure we can't override the retry
     s.get_backoff().reset_backoff()
@@ -135,7 +135,6 @@ async def test_retry_after(
         status=200,
     )
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
     assert mock_sleep.call_count == 1
     mock_sleep.assert_called_once_with(float(retry_after_time))
     frozen_time.tick(timedelta(seconds=retry_after_time + 1))
@@ -144,7 +143,6 @@ async def test_retry_after(
         status=200,
     )
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
     # shouldn't sleep since past expiration time
     assert mock_sleep.call_count == 1
     frozen_time.tick(timedelta(seconds=1))
@@ -162,14 +160,13 @@ async def test_retry_after(
         status=503,
         headers={"Retry-After": retry_date_str},
     )
-    await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.SERVICE_UNAVAILABLE
+    with pytest.raises(PulseServiceTemporarilyUnavailableError):
+        await p.async_query(ADT_ORB_URI, requires_authentication=False)
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         status=200,
     )
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
     assert mock_sleep.call_count == 2
     assert mock_sleep.call_args_list[1][0][0] == new_retry_after
     frozen_time.tick(timedelta(seconds=retry_after_time + 1))
@@ -178,14 +175,13 @@ async def test_retry_after(
         cp.make_url(ADT_ORB_URI),
         status=503,
     )
-    await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.SERVICE_UNAVAILABLE
+    with pytest.raises(PulseServiceTemporarilyUnavailableError):
+        await p.async_query(ADT_ORB_URI, requires_authentication=False)
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         status=200,
     )
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
     assert mock_sleep.call_count == 2
     # retry after in the past
     mocked_server_responses.get(
@@ -193,14 +189,13 @@ async def test_retry_after(
         status=503,
         headers={"Retry-After": retry_date_str},
     )
-    await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.SERVICE_UNAVAILABLE
+    with pytest.raises(PulseServiceTemporarilyUnavailableError):
+        await p.async_query(ADT_ORB_URI, requires_authentication=False)
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         status=200,
     )
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
     assert mock_sleep.call_count == 2
 
 
@@ -226,7 +221,6 @@ async def test_async_query_exceptions(
     assert (
         mock_sleep.call_args_list[0][0][0] == s.get_backoff().initial_backoff_interval
     )
-    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
     assert s.get_backoff().backoff_count == 0
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
@@ -234,7 +228,6 @@ async def test_async_query_exceptions(
     )
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
     assert mock_sleep.call_count == 1
-    assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
     assert s.get_backoff().backoff_count == 0
     query_backoff = s.get_backoff().initial_backoff_interval
     # need to do ClientConnectorError, but it requires initialization
@@ -251,9 +244,9 @@ async def test_async_query_exceptions(
             client_exceptions.ClientError,
             client_exceptions.ClientOSError,
         ):
-            error_type = ConnectionFailureReason.CLIENT_ERROR
+            error_type = PulseClientConnectionError
         else:
-            error_type = ConnectionFailureReason.SERVER_ERROR
+            error_type = PulseServerConnectionError
         for _ in range(MAX_RETRIES + 1):
             mocked_server_responses.get(
                 cp.make_url(ADT_ORB_URI),
@@ -263,11 +256,11 @@ async def test_async_query_exceptions(
             cp.make_url(ADT_ORB_URI),
             status=200,
         )
-        result = await p.async_query(
-            ADT_ORB_URI,
-            requires_authentication=False,
-        )
-        assert not result[1]
+        with pytest.raises(error_type):
+            await p.async_query(
+                ADT_ORB_URI,
+                requires_authentication=False,
+            )
         # only MAX_RETRIES - 1 sleeps since first call won't sleep
         assert (
             mock_sleep.call_count == curr_sleep_count + MAX_RETRIES - 1
@@ -278,10 +271,6 @@ async def test_async_query_exceptions(
                 i - curr_sleep_count
             ), f"Failure on exception sleep count {i} on exception {type(ex).__name__}"
         curr_sleep_count += MAX_RETRIES - 1
-        assert (
-            s.connection_failure_reason == error_type
-        ), f"Error type failure on exception {type(ex).__name__}"
-
         assert (
             s.get_backoff().backoff_count == 1
         ), f"Failure on exception {type(ex).__name__}"
@@ -298,7 +287,6 @@ async def test_async_query_exceptions(
             cp.make_url(ADT_ORB_URI),
             status=200,
         )
-        assert s.connection_failure_reason == ConnectionFailureReason.NO_FAILURE
         # this shouldn't trigger a sleep
         await p.async_query(ADT_ORB_URI, requires_authentication=False)
         assert mock_sleep.call_count == curr_sleep_count
