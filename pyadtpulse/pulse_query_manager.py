@@ -153,8 +153,8 @@ class PulseQueryManager:
 
     @typechecked
     def _handle_network_errors(self, e: Exception) -> None:
-        new_exception: PulseClientConnectionError | PulseServerConnectionError = (
-            PulseClientConnectionError(str(e), self._connection_status.get_backoff())
+        new_exception: PulseClientConnectionError | PulseServerConnectionError | None = (
+            None
         )
         if isinstance(e, (ServerConnectionError, ServerTimeoutError)):
             new_exception = PulseServerConnectionError(
@@ -166,6 +166,10 @@ class PulseQueryManager:
             or ("timed out") in str(e)
         ):
             new_exception = PulseServerConnectionError(
+                str(e), self._connection_status.get_backoff()
+            )
+        if not new_exception:
+            new_exception = PulseClientConnectionError(
                 str(e), self._connection_status.get_backoff()
             )
         raise new_exception
@@ -250,7 +254,7 @@ class PulseQueryManager:
         query_backoff = PulseBackoff(
             f"Query:{method} {uri}",
             self._connection_status.get_backoff().initial_backoff_interval,
-            threshold=1,
+            threshold=0,
             debug_locks=self._debug_locks,
         )
         while retry < MAX_RETRIES:

@@ -58,10 +58,9 @@ def read_file():
 
 
 @pytest.fixture
-def mock_sleep():
+def mock_sleep(mocker):
     """Fixture to mock asyncio.sleep."""
-    with patch("asyncio.sleep") as m:
-        yield m
+    return mocker.patch("asyncio.sleep", new_callable=AsyncMock)
 
 
 @pytest.fixture
