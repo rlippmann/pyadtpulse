@@ -26,6 +26,7 @@ from .exceptions import (
     PulseClientConnectionError,
     PulseGatewayOfflineError,
     PulseMFARequiredError,
+    PulseNotLoggedInError,
     PulseServerConnectionError,
     PulseServiceTemporarilyUnavailableError,
 )
@@ -299,11 +300,15 @@ class PyADTPulseAsync:
             return
         task_name = task.get_name()
         LOG.debug("cancelling %s", task_name)
+        task.cancel()
         try:
-            task.cancel()
-        except asyncio.CancelledError:
-            LOG.debug("%s successfully cancelled", task_name)
             await task
+        except asyncio.CancelledError:
+            pass
+        if task == self._sync_task:
+            e = PulseNotLoggedInError("Pulse logout has been called")
+            self._set_sync_check_exception(e)
+        LOG.debug("%s successfully cancelled", task_name)
 
     async def _login_looped(self, task_name: str) -> None:
         """
@@ -506,9 +511,7 @@ class PyADTPulseAsync:
             LOG.error("Could not retrieve any sites, login failed")
             await self.async_logout()
             return False
-
-        # since we received fresh data on the status of the alarm, go ahead
-        # and update the sites with the alarm status.
+        self._sync_check_exception = None
         self._timeout_task = asyncio.create_task(
             self._keepalive_task(), name=KEEPALIVE_TASK_NAME
         )
@@ -557,6 +560,8 @@ class PyADTPulseAsync:
         signals an update
         FIXME?: This code probably won't work with multiple waiters.
         """
+        if not self.is_connected:
+            raise PulseNotLoggedInError("Not connected to Pulse")
         with self._pa_attribute_lock:
             if self._sync_task is None:
                 coro = self._sync_check_task()

@@ -16,6 +16,7 @@ from pyadtpulse.const import (
     ADT_TIMEOUT_URI,
     DEFAULT_API_HOST,
 )
+from pyadtpulse.exceptions import PulseNotLoggedInError
 from pyadtpulse.pyadtpulse_async import PyADTPulseAsync
 
 DEFAULT_SYNC_CHECK = "234532-456432-0"
@@ -99,6 +100,7 @@ async def test_mocked_responses(
         response = await session.post(get_mocked_url(ADT_TIMEOUT_URI))
 
 
+# not sure we need this
 @pytest.fixture
 def wrap_wait_for_update():
     with patch.object(
@@ -148,14 +150,8 @@ async def do_wait_for_update(p: PyADTPulseAsync, shutdown_event: asyncio.Event):
 
 
 @pytest.mark.asyncio
-@patch.object(
-    PyADTPulseAsync,
-    "wait_for_update",
-    side_effect=PyADTPulseAsync.wait_for_update,
-    autospec=True,
-)
-async def test_wait_for_update(m, adt_pulse_instance):
-    p, _ = await adt_pulse_instance
+async def test_wait_for_update(adt_pulse_instance):
+    p, resposnes = await adt_pulse_instance
     shutdown_event = asyncio.Event()
     task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
     await asyncio.sleep(1)
@@ -164,10 +160,13 @@ async def test_wait_for_update(m, adt_pulse_instance):
     await p.async_logout()
     assert p._sync_task is None
     assert p.site.name == "Robert Lippmann"
-    # just cancel, otherwise wait for update will wait forever
-    task.cancel()
-    await task
-    assert m.call_count == 1
+    with pytest.raises(PulseNotLoggedInError):
+        await task
+
+    # test exceptions
+    # check we can't wait for update if not logged in
+    with pytest.raises(PulseNotLoggedInError):
+        await p.wait_for_update()
 
 
 @pytest.mark.asyncio

@@ -55,3 +55,10 @@ class PulseGatewayOfflineError(ExceptionWithBackoff):
 
 class PulseMFARequiredError(ExceptionWithBackoff):
     """MFA required error."""
+
+
+class PulseNotLoggedInError(Exception):
+    """Exception to indicate that the application code is not logged in.
+
+    Used for signalling waiters.
+    """
