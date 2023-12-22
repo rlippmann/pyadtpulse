@@ -20,6 +20,7 @@ class ExceptionWithRetry(ExceptionWithBackoff):
     def __init__(self, message: str, backoff: PulseBackoff, retry_time: float | None):
         """Initialize exception."""
         super().__init__(message, backoff)
+        self.retry_time = retry_time
         if retry_time and retry_time > time():
             # don't need a backoff count for absolute backoff
             self.backoff.reset_backoff()

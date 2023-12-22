@@ -150,8 +150,8 @@ async def do_wait_for_update(p: PyADTPulseAsync, shutdown_event: asyncio.Event):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_update(adt_pulse_instance):
-    p, resposnes = await adt_pulse_instance
+async def test_wait_for_update(adt_pulse_instance, get_mocked_url):
+    p, responses = await adt_pulse_instance
     shutdown_event = asyncio.Event()
     task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
     await asyncio.sleep(1)
@@ -167,6 +167,13 @@ async def test_wait_for_update(adt_pulse_instance):
     # check we can't wait for update if not logged in
     with pytest.raises(PulseNotLoggedInError):
         await p.wait_for_update()
+
+    responses.post(
+        get_mocked_url(ADT_LOGIN_URI),
+        status=307,
+        headers={"Location": get_mocked_url(ADT_SUMMARY_URI)},
+    )
+    await p.async_login()
 
 
 @pytest.mark.asyncio
