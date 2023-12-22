@@ -337,6 +337,8 @@ class ADTPulseSite(ADTPulseSiteProperties):
                 try:
                     last_update = parse_pulse_datetime(
                         remove_prefix(temp.get("title"), "Last Event:")
+                        .lstrip()
+                        .rstrip()
                     )
                 except ValueError:
                     last_update = datetime(1970, 1, 1)
