@@ -107,15 +107,13 @@ class PulseQueryManager:
         Raises:
             PulseServiceTemporarilyUnavailableError: If the server returns a "Retry-After" header.
         """
-        now = time()
         if retry_after.isnumeric():
-            retval = float(retry_after)
+            retval = float(retry_after) + time()
         else:
             try:
                 retval = datetime.strptime(
                     retry_after, "%a, %d %b %Y %H:%M:%S %Z"
                 ).timestamp()
-                retval -= now
             except ValueError:
                 return
         description = self._get_http_status_description(code)
@@ -145,6 +143,15 @@ class PulseQueryManager:
             self._set_retry_after(
                 return_value[0],
                 return_value[3],
+            )
+        if return_value[0] in (
+            HTTPStatus.TOO_MANY_REQUESTS,
+            HTTPStatus.SERVICE_UNAVAILABLE,
+        ):
+            raise PulseServiceTemporarilyUnavailableError(
+                f"HTTP error {return_value[0]}: {return_value[1]}",
+                self._connection_status.get_backoff(),
+                None,
             )
         raise PulseServerConnectionError(
             f"HTTP error {return_value[0]}: {return_value[1]} connecting to {return_value[2]}",

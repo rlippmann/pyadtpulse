@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import aiohttp
 import pytest
 
+from conftest import LoginType, add_custom_response, add_signin
 from pyadtpulse.const import (
     ADT_DEVICE_URI,
     ADT_LOGIN_URI,
@@ -67,19 +68,35 @@ async def test_mocked_responses(
             assert actual_content == expected_content
 
         # redirects
-
+        add_custom_response(
+            mocked_server_responses,
+            get_mocked_url,
+            read_file,
+            ADT_LOGIN_URI,
+            file_name="signin.html",
+        )
         response = await session.get(f"{DEFAULT_API_HOST}/", allow_redirects=True)
         assert response.status == 200
         actual_content = await response.text()
-        expected_content = read_file(static_responses[get_mocked_url(ADT_LOGIN_URI)])
+        expected_content = read_file("signin.html")
         assert actual_content == expected_content
+        add_custom_response(
+            mocked_server_responses,
+            get_mocked_url,
+            read_file,
+            ADT_LOGIN_URI,
+            file_name="signin.html",
+        )
         response = await session.get(
             get_mocked_url(ADT_LOGOUT_URI), allow_redirects=True
         )
         assert response.status == 200
-        expected_content = read_file(static_responses[get_mocked_url(ADT_LOGIN_URI)])
+        expected_content = read_file("signin.html")
         actual_content = await response.text()
         assert actual_content == expected_content
+        add_signin(
+            LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file
+        )
         response = await session.post(
             get_mocked_url(ADT_LOGIN_URI), allow_redirects=True
         )

@@ -4,6 +4,7 @@ import re
 import sys
 from collections.abc import Generator
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -40,6 +41,16 @@ from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
 from pyadtpulse.util import remove_prefix
 
 MOCKED_API_VERSION = "27.0.0-140"
+
+
+class LoginType(Enum):
+    """Login Types."""
+
+    SUCCESS = "signin.html"
+    MFA = "mfa.html"
+    FAIL = "signin_fail.html"
+    LOCKED = "signin_locked.html"
+    NOT_SIGNED_IN = "not_signed_in.html"
 
 
 @pytest.fixture
@@ -150,7 +161,6 @@ def get_relative_mocked_url(get_mocked_connection_properties):
 def get_mocked_mapped_static_responses(get_mocked_url) -> dict[str, str]:
     """Fixture to get the test mapped responses."""
     return {
-        get_mocked_url(ADT_LOGIN_URI): "signin.html",
         get_mocked_url(ADT_SUMMARY_URI): "summary.html",
         get_mocked_url(ADT_SYSTEM_URI): "system.html",
         get_mocked_url(ADT_GATEWAY_URI): "gateway.html",
@@ -194,6 +204,11 @@ def mocked_server_responses(
             )
         # redirects
         responses.get(
+            get_mocked_url(ADT_LOGIN_URI),
+            body=read_file("signin.html"),
+            content_type="text/html",
+        )
+        responses.get(
             DEFAULT_API_HOST,
             status=302,
             headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
@@ -212,13 +227,7 @@ def mocked_server_responses(
             repeat=True,
         )
         # login/logout
-        responses.post(
-            get_mocked_url(ADT_LOGIN_URI),
-            status=302,
-            headers={
-                "Location": get_mocked_url(ADT_SUMMARY_URI),
-            },
-        )
+
         logout_pattern = re.compile(
             rf"{re.escape(get_mocked_url(ADT_LOGOUT_URI))}/?.*$"
         )
@@ -228,9 +237,60 @@ def mocked_server_responses(
             headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
             repeat=True,
         )
+
         # not doing default sync check response or keepalive
         # because we need to set it on each test
         yield responses
+
+
+def add_custom_response(
+    mocked_server_responses,
+    get_mocked_url,
+    read_file,
+    url: str,
+    method: str = "GET",
+    status: int = 200,
+    file_name: str | None = None,
+    headers: dict[str, Any] | None = None,
+):
+    if method.upper() not in ("GET", "POST"):
+        raise ValueError("Unsupported HTTP method. Only GET and POST are supported.")
+
+    mocked_server_responses.add(
+        get_mocked_url(url),
+        method,
+        status=status,
+        body=read_file(file_name) if file_name else "",
+        content_type="text/html",
+        headers=headers,
+    )
+
+
+def add_signin(
+    signin_type: LoginType, mocked_server_responses, get_mocked_url, read_file
+):
+    if signin_type != LoginType.SUCCESS:
+        add_custom_response(
+            mocked_server_responses,
+            get_mocked_url,
+            read_file,
+            ADT_LOGIN_URI,
+            file_name=signin_type.value,
+        )
+    redirect = get_mocked_url(ADT_LOGIN_URI)
+    if signin_type == LoginType.MFA:
+        redirect = get_mocked_url(ADT_MFA_FAIL_URI)
+    if signin_type == LoginType.SUCCESS:
+        redirect = get_mocked_url(ADT_SUMMARY_URI)
+    add_custom_response(
+        mocked_server_responses,
+        get_mocked_url,
+        read_file,
+        ADT_LOGIN_URI,
+        status=307,
+        method="POST",
+        headers={"Location": redirect},
+    )
 
 
 @pytest.fixture

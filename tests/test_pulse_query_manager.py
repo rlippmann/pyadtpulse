@@ -39,7 +39,7 @@ async def test_fetch_version_fail(mock_server_down):
     with pytest.raises(PulseServerConnectionError):
         await p.async_fetch_version()
     assert s.get_backoff().backoff_count == 1
-    with pytest.raises(ValueError):
+    with pytest.raises(PulseServerConnectionError):
         await p.async_query(ADT_ORB_URI, requires_authentication=False)
     assert s.get_backoff().backoff_count == 2
     assert s.get_backoff().get_current_backoff_interval() == 2.0
@@ -54,7 +54,7 @@ async def test_fetch_version_eventually_succeeds(mock_server_temporarily_down):
     with pytest.raises(PulseServerConnectionError):
         await p.async_fetch_version()
     assert s.get_backoff().backoff_count == 1
-    with pytest.raises(ValueError):
+    with pytest.raises(PulseServerConnectionError):
         await p.async_query(ADT_ORB_URI, requires_authentication=False)
     assert s.get_backoff().backoff_count == 2
     assert s.get_backoff().get_current_backoff_interval() == 2.0
@@ -182,7 +182,7 @@ async def test_retry_after(
         status=200,
     )
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert mock_sleep.call_count == 2
+    assert mock_sleep.call_count == 3
     # retry after in the past
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
@@ -196,7 +196,7 @@ async def test_retry_after(
         status=200,
     )
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert mock_sleep.call_count == 2
+    assert mock_sleep.call_count == 4
 
 
 @pytest.mark.asyncio

@@ -5,12 +5,8 @@ import datetime
 import pytest
 from bs4 import BeautifulSoup
 
-from pyadtpulse.const import (
-    ADT_LOGIN_URI,
-    ADT_MFA_FAIL_URI,
-    ADT_SUMMARY_URI,
-    DEFAULT_API_HOST,
-)
+from conftest import LoginType, add_custom_response, add_signin
+from pyadtpulse.const import ADT_LOGIN_URI, DEFAULT_API_HOST
 from pyadtpulse.exceptions import (
     PulseAccountLockedError,
     PulseAuthenticationError,
@@ -35,9 +31,10 @@ def setup_pulse_connection() -> PulseConnection:
 
 
 @pytest.mark.asyncio
-async def test_login(mocked_server_responses, get_mocked_url, read_file, mock_sleep):
+async def test_login(mocked_server_responses, read_file, mock_sleep, get_mocked_url):
     """Test Pulse Connection."""
     pc = setup_pulse_connection()
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     # first call to signin post is successful in conftest.py
     result = await pc.async_do_login_query()
     assert result == BeautifulSoup(read_file("summary.html"), "html.parser")
@@ -45,6 +42,10 @@ async def test_login(mocked_server_responses, get_mocked_url, read_file, mock_sl
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     assert pc._connection_status.authenticated_flag.is_set()
+    # so logout won't fail
+    add_custom_response(
+        mocked_server_responses, get_mocked_url, read_file, ADT_LOGIN_URI
+    )
     await pc.async_do_logout_query()
     assert not pc._connection_status.authenticated_flag.is_set()
     assert mock_sleep.call_count == 0
@@ -66,20 +67,14 @@ async def test_multiple_login(
 ):
     """Test Pulse Connection."""
     pc = setup_pulse_connection()
-    # first call to signin post is successful in conftest.py
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     result = await pc.async_do_login_query()
     assert result == BeautifulSoup(read_file("summary.html"), "html.parser")
     assert mock_sleep.call_count == 0
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     assert pc._connection_status.authenticated_flag.is_set()
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI),
-        status=302,
-        headers={
-            "Location": get_mocked_url(ADT_SUMMARY_URI),
-        },
-    )
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     assert mock_sleep.call_count == 0
     assert pc.login_in_progress is False
@@ -105,13 +100,7 @@ async def test_multiple_login(
     assert pc._connection_status.get_backoff().backoff_count == 2
     assert not pc._connection_status.authenticated_flag.is_set()
     assert not pc.is_connected
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI),
-        status=302,
-        headers={
-            "Location": get_mocked_url(ADT_SUMMARY_URI),
-        },
-    )
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     # will do a backoff, then query
     assert mock_sleep.call_count == MAX_RETRIES - 1 + MAX_RETRIES + 1
@@ -119,13 +108,7 @@ async def test_multiple_login(
     assert pc._login_backoff.backoff_count == 0
     assert pc._connection_status.authenticated_flag.is_set()
 
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI),
-        status=302,
-        headers={
-            "Location": get_mocked_url(ADT_SUMMARY_URI),
-        },
-    )
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     # shouldn't sleep at all
     assert mock_sleep.call_count == MAX_RETRIES - 1 + MAX_RETRIES + 1
@@ -139,16 +122,14 @@ async def test_account_lockout(
     mocked_server_responses, mock_sleep, get_mocked_url, freeze_time_to_now, read_file
 ):
     pc = setup_pulse_connection()
-    # do initial login
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     assert mock_sleep.call_count == 0
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     assert pc.is_connected
     assert pc._connection_status.authenticated_flag.is_set()
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_locked.html")
-    )
+    add_signin(LoginType.LOCKED, mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseAccountLockedError):
         await pc.async_do_login_query()
     # won't sleep yet
@@ -157,22 +138,14 @@ async def test_account_lockout(
     # don't set backoff on locked account, just set expiration time on backoff
     assert pc._login_backoff.backoff_count == 0
     assert mock_sleep.call_count == 0
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI),
-        status=302,
-        headers={
-            "Location": get_mocked_url(ADT_SUMMARY_URI),
-        },
-    )
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     assert mock_sleep.call_count == 1
     assert mock_sleep.call_args_list[0][0][0] == 60 * 30
     assert pc.is_connected
     assert pc._connection_status.authenticated_flag.is_set()
     freeze_time_to_now.tick(delta=datetime.timedelta(seconds=60 * 30 + 1))
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_locked.html")
-    )
+    add_signin(LoginType.LOCKED, mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseAccountLockedError):
         await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 0
@@ -184,32 +157,23 @@ async def test_invalid_credentials(
     mocked_server_responses, mock_sleep, get_mocked_url, read_file
 ):
     pc = setup_pulse_connection()
-    # do initial login
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     assert mock_sleep.call_count == 0
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_fail.html")
-    )
+    add_signin(LoginType.FAIL, mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseAuthenticationError):
         await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 1
     assert mock_sleep.call_count == 0
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI), status=200, body=read_file("signin_fail.html")
-    )
+    add_signin(LoginType.FAIL, mocked_server_responses, get_mocked_url, read_file)
+
     with pytest.raises(PulseAuthenticationError):
         await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 2
     assert mock_sleep.call_count == 1
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI),
-        status=302,
-        headers={
-            "Location": get_mocked_url(ADT_SUMMARY_URI),
-        },
-    )
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 0
     assert mock_sleep.call_count == 2
@@ -220,47 +184,34 @@ async def test_mfa_failure(
     mocked_server_responses, mock_sleep, get_mocked_url, read_file
 ):
     pc = setup_pulse_connection()
-    # do initial login
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     assert mock_sleep.call_count == 0
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI),
-        status=307,
-        headers={"Location": get_mocked_url(ADT_MFA_FAIL_URI)},
-    )
+    add_signin(LoginType.MFA, mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseMFARequiredError):
         await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 1
     assert mock_sleep.call_count == 0
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI),
-        status=307,
-        headers={"Location": get_mocked_url(ADT_MFA_FAIL_URI)},
-    )
+    add_signin(LoginType.MFA, mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseMFARequiredError):
         await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 2
     assert mock_sleep.call_count == 1
-    mocked_server_responses.post(
-        get_mocked_url(ADT_LOGIN_URI),
-        status=302,
-        headers={
-            "Location": get_mocked_url(ADT_SUMMARY_URI),
-        },
-    )
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 0
     assert mock_sleep.call_count == 2
 
 
 @pytest.mark.asyncio
-async def test_only_single_login(mocked_server_responses):
+async def test_only_single_login(mocked_server_responses, get_mocked_url, read_file):
     async def login_task():
         await pc.async_do_login_query()
 
     pc = setup_pulse_connection()
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     # delay one task for a little bit
     for i in range(4):
         pc._login_backoff.increment_backoff()
