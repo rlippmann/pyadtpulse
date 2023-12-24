@@ -123,7 +123,9 @@ class PulseConnection(PulseQueryManager):
                                 retry_after + time(),
                             )
                     elif "You have not yet signed in" in error_text:
-                        raise PulseNotLoggedInError("Pulse not logged in")
+                        raise PulseNotLoggedInError(
+                            "Pulse not logged in", self._login_backoff
+                        )
                     else:
                         # FIXME: not sure if this is true
                         raise PulseAuthenticationError(error_text, self._login_backoff)
@@ -250,6 +252,12 @@ class PulseConnection(PulseQueryManager):
             self._connection_status.authenticated_flag.is_set()
             and not self._login_in_progress
         )
+
+    @property
+    def login_backoff(self) -> PulseBackoff:
+        """Return backoff object."""
+        with self._pc_attribute_lock:
+            return self._login_backoff
 
     def check_sync(self, message: str) -> AbstractEventLoop:
         """Convenience method to check if running from sync context."""

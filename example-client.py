@@ -17,7 +17,12 @@ from pyadtpulse.const import (
     API_HOST_CA,
     DEFAULT_API_HOST,
 )
-from pyadtpulse.exceptions import PulseAuthenticationError
+from pyadtpulse.exceptions import (
+    PulseAuthenticationError,
+    PulseConnectionError,
+    PulseGatewayOfflineError,
+    PulseLoginException,
+)
 from pyadtpulse.site import ADTPulseSite
 
 USER = "adtpulse_user"
@@ -396,8 +401,8 @@ def sync_example(
             relogin_interval=relogin_interval,
             detailed_debug_logging=detailed_debug_logging,
         )
-    except PulseAuthenticationError:
-        print("Invalid credentials for ADT Pulse site")
+    except PulseLoginException as ex:
+        print("Error connecting to ADT Pulse site: %s", ex.args[0])
         sys.exit()
     except BaseException as e:
         print("Received exception logging into ADT Pulse site")
@@ -435,7 +440,20 @@ def sync_example(
                 print("Error, no zones exist, exiting...")
                 done = True
                 break
-            if adt.updates_exist:
+            have_updates = False
+            try:
+                have_updates = adt.updates_exist
+            except PulseGatewayOfflineError:
+                print("ADT Pulse gateway is offline, re-polling")
+                continue
+            except PulseConnectionError as ex:
+                print("ADT Pulse connection error: %s, re-polling", ex.args[0])
+                continue
+            except PulseAuthenticationError as ex:
+                print("ADT Pulse authentication error: %s, exiting...", ex.args[0])
+                done = True
+                break
+            if have_updates:
                 print("Updates exist, refreshing")
                 # Don't need to explicitly call update() anymore
                 # Background thread will already have updated
@@ -639,7 +657,18 @@ async def async_example(
                 break
             print("\nZones:")
             pprint(adt.site.zones, compact=True)
-            await adt.wait_for_update()
+            try:
+                await adt.wait_for_update()
+            except PulseGatewayOfflineError:
+                print("ADT Pulse gateway is offline, re-polling")
+                continue
+            except PulseConnectionError as ex:
+                print("ADT Pulse connection error: %s, re-polling", ex.args[0])
+                continue
+            except PulseAuthenticationError as ex:
+                print("ADT Pulse authentication error: %s, exiting...", ex.args[0])
+                done = True
+                break
             print("Updates exist, refreshing")
         # no need to call an update method
         except KeyboardInterrupt:

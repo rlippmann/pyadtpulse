@@ -306,7 +306,9 @@ class PyADTPulseAsync:
         except asyncio.CancelledError:
             pass
         if task == self._sync_task:
-            e = PulseNotLoggedInError("Pulse logout has been called")
+            e = PulseNotLoggedInError(
+                "Pulse logout has been called", self._pulse_connection.login_backoff
+            )
             self._set_sync_check_exception(e)
         LOG.debug("%s successfully cancelled", task_name)
 
@@ -580,10 +582,15 @@ class PyADTPulseAsync:
 
         Blocks current async task until Pulse system
         signals an update
-        FIXME?: This code probably won't work with multiple waiters.
+
+        Raises:
+            Every exception from exceptions.py are possible
         """
+        # FIXME?: This code probably won't work with multiple waiters.
         if not self.is_connected:
-            raise PulseNotLoggedInError("Not connected to Pulse")
+            raise PulseNotLoggedInError(
+                "Not connected to Pulse", self._pulse_connection.login_backoff
+            )
         with self._pa_attribute_lock:
             if self._sync_task is None:
                 coro = self._sync_check_task()

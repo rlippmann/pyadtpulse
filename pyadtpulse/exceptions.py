@@ -4,7 +4,7 @@ from time import time
 from .pulse_backoff import PulseBackoff
 
 
-class ExceptionWithBackoff(RuntimeError):
+class PulseExceptionWithBackoff(RuntimeError):
     """Exception with backoff."""
 
     def __init__(self, message: str, backoff: PulseBackoff):
@@ -14,7 +14,7 @@ class ExceptionWithBackoff(RuntimeError):
         self.backoff.increment_backoff()
 
 
-class ExceptionWithRetry(ExceptionWithBackoff):
+class PulseExceptionWithRetry(PulseExceptionWithBackoff):
     """Exception with backoff."""
 
     def __init__(self, message: str, backoff: PulseBackoff, retry_time: float | None):
@@ -27,38 +27,50 @@ class ExceptionWithRetry(ExceptionWithBackoff):
             self.backoff.set_absolute_backoff_time(retry_time)
 
 
-class PulseServerConnectionError(ExceptionWithBackoff):
+class PulseConnectionError(Exception):
+    """Base class for connection errors"""
+
+
+class PulseServerConnectionError(PulseExceptionWithBackoff, PulseConnectionError):
     """Server error."""
 
 
-class PulseClientConnectionError(ExceptionWithBackoff):
+class PulseClientConnectionError(PulseExceptionWithBackoff, PulseConnectionError):
     """Client error."""
 
 
-class PulseServiceTemporarilyUnavailableError(ExceptionWithRetry):
+class PulseServiceTemporarilyUnavailableError(
+    PulseExceptionWithRetry, PulseConnectionError
+):
     """Service temporarily unavailable error.
 
     For HTTP 503 and 429 errors.
     """
 
 
-class PulseAuthenticationError(ExceptionWithBackoff):
+class PulseLoginException(Exception):
+    """Login exceptions.
+
+    Base class for catching all login exceptions."""
+
+
+class PulseAuthenticationError(PulseExceptionWithBackoff, PulseLoginException):
     """Authentication error."""
 
 
-class PulseAccountLockedError(ExceptionWithRetry):
+class PulseAccountLockedError(PulseExceptionWithRetry, PulseLoginException):
     """Account locked error."""
 
 
-class PulseGatewayOfflineError(ExceptionWithBackoff):
+class PulseGatewayOfflineError(PulseExceptionWithBackoff):
     """Gateway offline error."""
 
 
-class PulseMFARequiredError(ExceptionWithBackoff):
+class PulseMFARequiredError(PulseExceptionWithBackoff, PulseLoginException):
     """MFA required error."""
 
 
-class PulseNotLoggedInError(Exception):
+class PulseNotLoggedInError(PulseExceptionWithBackoff, PulseLoginException):
     """Exception to indicate that the application code is not logged in.
 
     Used for signalling waiters.
