@@ -7,7 +7,7 @@ from typing import TypedDict
 
 from typeguard import typechecked
 
-ADT_NAME_TO_DEFAULT_TAGS = {
+ADT_NAME_TO_DEFAULT_TAGS: dict[str, tuple[str, str]] = {
     "Door": ("sensor", "doorWindow"),
     "Window": ("sensor", "doorWindow"),
     "Motion": ("sensor", "motion"),
@@ -40,10 +40,38 @@ class ADTPulseZoneData:
 
     name: str
     id_: str
-    tags: tuple = ADT_NAME_TO_DEFAULT_TAGS["Window"]
+    _tags: tuple[str, str] = ADT_NAME_TO_DEFAULT_TAGS["Window"]
     status: str = "Unknown"
     state: str = "Unknown"
-    last_activity_timestamp: int = 0
+    _last_activity_timestamp: int = 0
+
+    @property
+    def last_activity_timestamp(self) -> int:
+        """Return the last activity timestamp."""
+        return self._last_activity_timestamp
+
+    @last_activity_timestamp.setter
+    @typechecked
+    def last_activity_timestamp(self, value: int) -> None:
+        """Set the last activity timestamp."""
+        if value < 1420070400:
+            raise ValueError(
+                "last_activity_timestamp must be greater than that of 01-Jan-2015"
+            )
+        self._last_activity_timestamp = value
+
+    @property
+    def tags(self) -> tuple[str, str]:
+        """Return the tags."""
+        return self._tags
+
+    @tags.setter
+    @typechecked
+    def tags(self, value: tuple[str, str]) -> None:
+        """Set the tags."""
+        if value not in ADT_NAME_TO_DEFAULT_TAGS.values():
+            raise ValueError("tags must be one of: " + str(ADT_NAME_TO_DEFAULT_TAGS))
+        self._tags = value
 
 
 class ADTPulseFlattendZone(TypedDict):
