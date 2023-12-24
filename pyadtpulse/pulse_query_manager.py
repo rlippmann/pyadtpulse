@@ -270,11 +270,12 @@ class PulseQueryManager:
                     requires_authentication
                     and not self._connection_status.authenticated_flag.is_set()
                 ):
-                    LOG.info(
-                        "%s for %s waiting for authenticated flag to be set",
-                        method,
-                        uri,
-                    )
+                    if self._connection_properties.detailed_debug_logging:
+                        LOG.debug(
+                            "%s for %s waiting for authenticated flag to be set",
+                            method,
+                            uri,
+                        )
                     # wait for authenticated flag to be set
                     # use a timeout to prevent waiting forever
                     try:
@@ -302,7 +303,7 @@ class PulseQueryManager:
                 ) as response:
                     return_value = await self._handle_query_response(response)
                     if return_value[0] in RECOVERABLE_ERRORS:
-                        LOG.info(
+                        LOG.debug(
                             "query returned recoverable error code %s: %s,"
                             "retrying (count = %d)",
                             return_value[0],
@@ -310,7 +311,7 @@ class PulseQueryManager:
                             retry,
                         )
                         if retry == MAX_RETRIES:
-                            LOG.warning(
+                            LOG.debug(
                                 "Exceeded max retries of %d, giving up", MAX_RETRIES
                             )
                             response.raise_for_status()
@@ -386,7 +387,7 @@ class PulseQueryManager:
                 response.raise_for_status()
 
         except ClientResponseError as ex:
-            LOG.debug(
+            LOG.warning(
                 "Error %s occurred determining Pulse API version",
                 ex.args,
                 exc_info=True,
@@ -399,7 +400,7 @@ class PulseQueryManager:
             ClientError,
             ServerConnectionError,
         ) as ex:
-            LOG.debug(
+            LOG.warning(
                 "Error %s occurred determining Pulse API version",
                 ex.args,
                 exc_info=True,
