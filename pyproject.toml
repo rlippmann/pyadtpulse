@@ -67,5 +67,6 @@ all = true
 
 [tool.pytest.ini_options]
 timeout = 30
+addopts = "--cov=pyadtpulse --cov-report=html"
 
 [tool.pyright]
