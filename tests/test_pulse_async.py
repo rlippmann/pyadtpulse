@@ -132,8 +132,12 @@ def wrap_wait_for_update():
 
 @pytest.fixture
 @pytest.mark.asyncio
-async def adt_pulse_instance(mocked_server_responses, extract_ids_from_data_directory):
+async def adt_pulse_instance(
+    mocked_server_responses, extract_ids_from_data_directory, get_mocked_url, read_file
+):
+    """Create an instance of PyADTPulseAsync and login."""
     p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await p.async_login()
     # Assertions after login
     assert p.site.name == "Robert Lippmann"
@@ -194,8 +198,8 @@ async def test_wait_for_update(adt_pulse_instance, get_mocked_url):
 
 
 @pytest.mark.asyncio
-async def test_orb_update(mocked_server_responses, get_mocked_url, read_file):
-    response = mocked_server_responses
+async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
+    p, response = await adt_pulse_instance
     pattern = re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
 
     def signal_status_change():
@@ -293,13 +297,14 @@ async def test_orb_update(mocked_server_responses, get_mocked_url, read_file):
             assert code == 200
             assert content == NEXT_SYNC_CHECK
 
-    p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
     shutdown_event = asyncio.Event()
     shutdown_event.clear()
     setup_sync_check()
     # do a first run though to make sure aioresponses will work ok
     await test_sync_check_and_orb()
+    await p.async_logout()
     open_patio()
+    add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
     await p.async_login()
     task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
     await asyncio.sleep(3)
@@ -315,18 +320,17 @@ async def test_orb_update(mocked_server_responses, get_mocked_url, read_file):
 
 
 @pytest.mark.asyncio
-async def test_keepalive_check(mocked_server_responses):
-    p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
-    await p.async_login()
+async def test_keepalive_check(adt_pulse_instance, get_mocked_url, read_file):
+    p, response = await adt_pulse_instance
     assert p._timeout_task is not None
     await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
-async def test_infinite_sync_check(mocked_server_responses, get_mocked_url):
-    p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
+async def test_infinite_sync_check(adt_pulse_instance, get_mocked_url, read_file):
+    p, response = await adt_pulse_instance
     pattern = re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
-    mocked_server_responses.get(
+    response.get(
         pattern,
         body=DEFAULT_SYNC_CHECK,
         content_type="text/html",
@@ -334,7 +338,6 @@ async def test_infinite_sync_check(mocked_server_responses, get_mocked_url):
     )
     shutdown_event = asyncio.Event()
     shutdown_event.clear()
-    await p.async_login()
     task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
     await asyncio.sleep(5)
     shutdown_event.set()

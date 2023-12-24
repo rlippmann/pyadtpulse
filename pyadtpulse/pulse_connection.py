@@ -12,7 +12,13 @@ from bs4 import BeautifulSoup
 from typeguard import typechecked
 from yarl import URL
 
-from .const import ADT_LOGIN_URI, ADT_LOGOUT_URI, ADT_MFA_FAIL_URI, ADT_SUMMARY_URI
+from .const import (
+    ADT_DEFAULT_LOGIN_TIMEOUT,
+    ADT_LOGIN_URI,
+    ADT_LOGOUT_URI,
+    ADT_MFA_FAIL_URI,
+    ADT_SUMMARY_URI,
+)
 from .exceptions import (
     PulseAccountLockedError,
     PulseAuthenticationError,
@@ -157,7 +163,9 @@ class PulseConnection(PulseQueryManager):
         return soup
 
     @typechecked
-    async def async_do_login_query(self, timeout: int = 30) -> BeautifulSoup | None:
+    async def async_do_login_query(
+        self, timeout: int = ADT_DEFAULT_LOGIN_TIMEOUT
+    ) -> BeautifulSoup | None:
         """
         Performs a login query to the Pulse site.
 
@@ -167,7 +175,7 @@ class PulseConnection(PulseQueryManager):
 
         Args:
             timeout (int, optional): The timeout value for the query in seconds.
-            Defaults to 30.
+            Defaults to ADT_DEFAULT_LOGIN_TIMEOUT.
 
         Returns:
             soup: Optional[BeautifulSoup]: A BeautifulSoup object containing

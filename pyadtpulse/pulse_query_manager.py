@@ -1,6 +1,6 @@
 """Pulse Query Manager."""
 from logging import getLogger
-from asyncio import current_task
+from asyncio import current_task, wait_for
 from datetime import datetime
 from http import HTTPStatus
 from time import time
@@ -18,9 +18,15 @@ from bs4 import BeautifulSoup
 from typeguard import typechecked
 from yarl import URL
 
-from .const import ADT_HTTP_BACKGROUND_URIS, ADT_ORB_URI, ADT_OTHER_HTTP_ACCEPT_HEADERS
+from .const import (
+    ADT_DEFAULT_LOGIN_TIMEOUT,
+    ADT_HTTP_BACKGROUND_URIS,
+    ADT_ORB_URI,
+    ADT_OTHER_HTTP_ACCEPT_HEADERS,
+)
 from .exceptions import (
     PulseClientConnectionError,
+    PulseNotLoggedInError,
     PulseServerConnectionError,
     PulseServiceTemporarilyUnavailableError,
 )
@@ -216,27 +222,18 @@ class PulseQueryManager:
             PulseClientConnectionError: If the client cannot connect
             PulseServerConnectionError: If there is a server error
             PulseServiceTemporarilyUnavailableError: If the server returns a Retry-After header
+            PulseNotLoggedInError: if not logged in and task is waiting for longer than
+                ADT_DEFAULT_LOGIN_TIMEOUT seconds
         """
 
         async def setup_query():
             if method not in ("GET", "POST"):
                 raise ValueError("method must be GET or POST")
             await self._connection_status.get_backoff().wait_for_backoff()
-            if (
-                requires_authentication
-                and not self._connection_status.authenticated_flag.is_set()
-            ):
-                LOG.info(
-                    "%s for %s waiting for authenticated flag to be set", method, uri
-                )
-                await self._connection_status.authenticated_flag.wait()
-            else:
+            if not self._connection_properties.api_version:
+                await self.async_fetch_version()
                 if not self._connection_properties.api_version:
-                    await self.async_fetch_version()
-                    if not self._connection_properties.api_version:
-                        raise ValueError(
-                            "Could not determine API version for connection"
-                        )
+                    raise ValueError("Could not determine API version for connection")
 
         await setup_query()
         url = self._connection_properties.make_url(uri)
@@ -269,6 +266,32 @@ class PulseQueryManager:
                 await query_backoff.wait_for_backoff()
                 retry += 1
                 query_backoff.increment_backoff()
+                if (
+                    requires_authentication
+                    and not self._connection_status.authenticated_flag.is_set()
+                ):
+                    LOG.info(
+                        "%s for %s waiting for authenticated flag to be set",
+                        method,
+                        uri,
+                    )
+                    # wait for authenticated flag to be set
+                    # use a timeout to prevent waiting forever
+                    try:
+                        await wait_for(
+                            self._connection_status.authenticated_flag.wait(),
+                            ADT_DEFAULT_LOGIN_TIMEOUT,
+                        )
+                    except TimeoutError as ex:
+                        LOG.warning(
+                            "%s for %s timed out waiting for authenticated flag to be set",
+                            method,
+                            uri,
+                        )
+                        raise PulseNotLoggedInError(
+                            f"{method} for {uri} timed out waiting for authenticated flag to be set",
+                            self._connection_status.get_backoff(),
+                        ) from ex
                 async with self._connection_properties.session.request(
                     method,
                     url,
@@ -390,3 +413,4 @@ class PulseQueryManager:
                 self._connection_properties.api_version,
                 self._connection_properties.service_host,
             )
+            self._connection_status.get_backoff().reset_backoff()
