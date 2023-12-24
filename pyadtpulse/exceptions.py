@@ -13,6 +13,14 @@ class PulseExceptionWithBackoff(RuntimeError):
         self.backoff = backoff
         self.backoff.increment_backoff()
 
+    def __str__(self):
+        """Return a string representation of the exception."""
+        return f"{self.__class__.__name__}: {super().__str__()}"
+
+    def __repr__(self):
+        """Return a string representation of the exception."""
+        return f"{self.__class__.__name__}(message='{self.args[0]}', backoff={self.backoff})"
+
 
 class PulseExceptionWithRetry(PulseExceptionWithBackoff):
     """Exception with backoff."""
@@ -25,6 +33,14 @@ class PulseExceptionWithRetry(PulseExceptionWithBackoff):
             # don't need a backoff count for absolute backoff
             self.backoff.reset_backoff()
             self.backoff.set_absolute_backoff_time(retry_time)
+
+    def __str__(self):
+        """Return a string representation of the exception."""
+        return f"{self.__class__.__name__}: {super().__str__()}"
+
+    def __repr__(self):
+        """Return a string representation of the exception."""
+        return f"{self.__class__.__name__}(message='{self.args[0]}', backoff={self.backoff}, retry_time={self.retry_time})"
 
 
 class PulseConnectionError(Exception):
