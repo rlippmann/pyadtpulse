@@ -1,6 +1,6 @@
 """Pulse Query Manager."""
 from logging import getLogger
-from asyncio import current_task, wait_for
+from asyncio import TimeoutError, current_task, wait_for
 from datetime import datetime
 from http import HTTPStatus
 from time import time
@@ -260,12 +260,12 @@ class PulseQueryManager:
             self._connection_status.get_backoff().initial_backoff_interval,
             threshold=0,
             debug_locks=self._debug_locks,
+            detailed_debug_logging=self._connection_properties.detailed_debug_logging,
         )
         while retry < MAX_RETRIES:
             try:
                 await query_backoff.wait_for_backoff()
                 retry += 1
-                query_backoff.increment_backoff()
                 if (
                     requires_authentication
                     and not self._connection_status.authenticated_flag.is_set()
@@ -314,10 +314,13 @@ class PulseQueryManager:
                             LOG.debug(
                                 "Exceeded max retries of %d, giving up", MAX_RETRIES
                             )
+                        else:
+                            query_backoff.increment_backoff()
                             response.raise_for_status()
                         continue
                     response.raise_for_status()
                     break
+
             except ClientResponseError:
                 self._handle_http_errors(return_value)
             except (
@@ -335,8 +338,17 @@ class PulseQueryManager:
                 )
                 if retry == MAX_RETRIES:
                     self._handle_network_errors(ex)
+                query_backoff.increment_backoff()
                 continue
-
+            except TimeoutError as ex:
+                if retry == MAX_RETRIES:
+                    LOG.debug("Exceeded max retries of %d, giving up", MAX_RETRIES)
+                    raise PulseServerConnectionError(
+                        f"Exceeded max retries of {MAX_RETRIES}, giving up",
+                        self._connection_status.get_backoff(),
+                    ) from ex
+                query_backoff.increment_backoff()
+                continue
         # success
         self._connection_status.get_backoff().reset_backoff()
         return (return_value[0], return_value[1], return_value[2])
@@ -381,13 +393,13 @@ class PulseQueryManager:
         signin_url = self._connection_properties.service_host
         try:
             async with self._connection_properties.session.get(
-                signin_url,
+                signin_url, timeout=10
             ) as response:
                 response_values = await self._handle_query_response(response)
                 response.raise_for_status()
 
         except ClientResponseError as ex:
-            LOG.warning(
+            LOG.error(
                 "Error %s occurred determining Pulse API version",
                 ex.args,
                 exc_info=True,
@@ -400,12 +412,22 @@ class PulseQueryManager:
             ClientError,
             ServerConnectionError,
         ) as ex:
-            LOG.warning(
+            LOG.error(
                 "Error %s occurred determining Pulse API version",
                 ex.args,
                 exc_info=True,
             )
             self._handle_network_errors(ex)
+        except TimeoutError as ex:
+            LOG.error(
+                "Timeout occurred determining Pulse API version %s",
+                ex.args,
+                exc_info=True,
+            )
+            raise PulseServerConnectionError(
+                "Timeout occurred determining Pulse API version",
+                self._connection_status.get_backoff(),
+            ) from ex
         version = self._connection_properties.get_api_version(str(response_values[2]))
         if version is not None:
             self._connection_properties.api_version = version
