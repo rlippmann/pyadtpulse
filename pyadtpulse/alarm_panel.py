@@ -8,6 +8,7 @@ from threading import RLock
 from time import time
 
 from bs4 import BeautifulSoup
+from typeguard import typechecked
 
 from .const import ADT_ARM_DISARM_URI
 from .pulse_connection import PulseConnection
@@ -117,6 +118,7 @@ class ADTPulseAlarmPanel:
         with self._state_lock:
             return self._last_arm_disarm
 
+    @typechecked
     async def _arm(
         self, connection: PulseConnection, mode: str, force_arm: bool
     ) -> bool:
@@ -190,6 +192,7 @@ class ADTPulseAlarmPanel:
         self._last_arm_disarm = int(time())
         return True
 
+    @typechecked
     def _sync_set_alarm_mode(
         self,
         connection: PulseConnection,
@@ -204,6 +207,7 @@ class ADTPulseAlarmPanel:
             ),
         ).result()
 
+    @typechecked
     def arm_away(self, connection: PulseConnection, force_arm: bool = False) -> bool:
         """Arm the alarm in Away mode.
 
@@ -215,6 +219,7 @@ class ADTPulseAlarmPanel:
         """
         return self._sync_set_alarm_mode(connection, ADT_ALARM_AWAY, force_arm)
 
+    @typechecked
     def arm_home(self, connection: PulseConnection, force_arm: bool = False) -> bool:
         """Arm the alarm in Home mode.
 
@@ -226,6 +231,7 @@ class ADTPulseAlarmPanel:
         """
         return self._sync_set_alarm_mode(connection, ADT_ALARM_HOME, force_arm)
 
+    @typechecked
     def disarm(self, connection: PulseConnection) -> bool:
         """Disarm the alarm.
 
@@ -234,6 +240,7 @@ class ADTPulseAlarmPanel:
         """
         return self._sync_set_alarm_mode(connection, ADT_ALARM_OFF, False)
 
+    @typechecked
     async def async_arm_away(
         self, connection: PulseConnection, force_arm: bool = False
     ) -> bool:
@@ -247,6 +254,7 @@ class ADTPulseAlarmPanel:
         """
         return await self._arm(connection, ADT_ALARM_AWAY, force_arm)
 
+    @typechecked
     async def async_arm_home(
         self, connection: PulseConnection, force_arm: bool = False
     ) -> bool:
@@ -259,6 +267,7 @@ class ADTPulseAlarmPanel:
         """
         return await self._arm(connection, ADT_ALARM_HOME, force_arm)
 
+    @typechecked
     async def async_disarm(self, connection: PulseConnection) -> bool:
         """Disarm alarm async.
 
@@ -267,6 +276,7 @@ class ADTPulseAlarmPanel:
         """
         return await self._arm(connection, ADT_ALARM_OFF, False)
 
+    @typechecked
     def update_alarm_from_soup(self, summary_html_soup: BeautifulSoup) -> None:
         """
         Updates the alarm status based on the information extracted from the provided
@@ -332,6 +342,7 @@ class ADTPulseAlarmPanel:
                 else:
                     LOG.warning("Unable to extract sat")
 
+    @typechecked
     def set_alarm_attributes(self, alarm_attributes: dict[str, str]) -> None:
         """
         Set alarm attributes including model, manufacturer, and online status.

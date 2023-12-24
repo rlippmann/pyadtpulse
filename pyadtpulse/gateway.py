@@ -1,6 +1,7 @@
 """ADT Pulse Gateway Dataclass."""
 
 import logging
+import re
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from threading import RLock
@@ -57,11 +58,11 @@ class ADTPulseGateway:
     primary_connection_type: str | None = None
     broadband_connection_status: str | None = None
     cellular_connection_status: str | None = None
-    cellular_connection_signal_strength: float = 0.0
+    _cellular_connection_signal_strength: float = 0.0
     broadband_lan_ip_address: IPv4Address | IPv6Address | None = None
-    broadband_lan_mac: str | None = None
+    _broadband_lan_mac: str | None = None
     device_lan_ip_address: IPv4Address | IPv6Address | None = None
-    device_lan_mac: str | None = None
+    _device_lan_mac: str | None = None
     router_lan_ip_address: IPv4Address | IPv6Address | None = None
     router_wan_ip_address: IPv4Address | IPv6Address | None = None
 
@@ -109,7 +110,52 @@ class ADTPulseGateway:
         with self._attribute_lock:
             self.backoff.initial_backoff_interval = new_interval
 
+    @staticmethod
+    def _check_mac_address(mac_address: str) -> bool:
+        pattern = r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+        return re.match(pattern, mac_address) is not None
+
+    @property
+    def broadband_lan_mac(self) -> str | None:
+        """Get current gateway MAC address."""
+        return self._broadband_lan_mac
+
+    @broadband_lan_mac.setter
     @typechecked
+    def broadband_lan_mac(self, new_mac: str | None) -> None:
+        """Set gateway MAC address."""
+        if new_mac is not None and not self._check_mac_address(new_mac):
+            raise ValueError("Invalid MAC address")
+        self._broadband_lan_mac = new_mac
+
+    @property
+    def device_lan_mac(self) -> str | None:
+        """Get current gateway MAC address."""
+        return self._device_lan_mac
+
+    @device_lan_mac.setter
+    @typechecked
+    def device_lan_mac(self, new_mac: str | None) -> None:
+        """Set gateway MAC address."""
+        if new_mac is not None and not self._check_mac_address(new_mac):
+            raise ValueError("Invalid MAC address")
+        self._device_lan_mac = new_mac
+
+    @property
+    def cellular_connection_signal_strength(self) -> float:
+        """Get current gateway MAC address."""
+        return self._cellular_connection_signal_strength
+
+    @cellular_connection_signal_strength.setter
+    @typechecked
+    def cellular_connection_signal_strength(
+        self, new_signal_strength: float | None
+    ) -> None:
+        """Set gateway MAC address."""
+        if not new_signal_strength:
+            new_signal_strength = 0.0
+        self._cellular_connection_signal_strength = new_signal_strength
+
     def set_gateway_attributes(self, gateway_attributes: dict[str, str]) -> None:
         """Set gateway attributes from dictionary.
 
@@ -137,4 +183,5 @@ class ADTPulseGateway:
                     temp = int(parse_pulse_datetime(temp).timestamp())
                 except ValueError:
                     temp = None
-            setattr(self, i, temp)
+            if hasattr(self, i):
+                setattr(self, i, temp)
