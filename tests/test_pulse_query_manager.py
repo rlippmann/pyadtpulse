@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timedelta
 
 import pytest
-from aiohttp import client_exceptions
+from aiohttp import client_exceptions, client_reqrep
 from bs4 import BeautifulSoup
 
 from conftest import MOCKED_API_VERSION
@@ -230,6 +230,27 @@ async def test_async_query_exceptions(
     assert mock_sleep.call_count == 1
     assert s.get_backoff().backoff_count == 0
     query_backoff = s.get_backoff().initial_backoff_interval
+    connector_errors = (
+        client_exceptions.ClientConnectorError(
+            client_reqrep.ConnectionKey(
+                DEFAULT_API_HOST,
+                443,
+                is_ssl=True,
+                ssl=True,
+                proxy=None,
+                proxy_auth=None,
+                proxy_headers_hash=None,
+            ),
+            os_error=error_type,
+        )
+        for error_type in (
+            ConnectionRefusedError,
+            ConnectionResetError,
+            TimeoutError,
+            BrokenPipeError,
+        )
+    )
+
     # need to do ClientConnectorError, but it requires initialization
     for ex in (
         client_exceptions.ClientConnectionError(),
@@ -238,11 +259,23 @@ async def test_async_query_exceptions(
         client_exceptions.ServerDisconnectedError(),
         client_exceptions.ServerTimeoutError(),
         client_exceptions.ServerConnectionError(),
+        asyncio.TimeoutError(),
+        *connector_errors,
     ):
+        print(
+            type(
+                ex,
+            )
+        )
         if type(ex) in (
             client_exceptions.ClientConnectionError,
             client_exceptions.ClientError,
             client_exceptions.ClientOSError,
+        ):
+            error_type = PulseClientConnectionError
+        elif type(ex) == client_exceptions.ClientConnectorError and ex.os_error in (
+            TimeoutError,
+            BrokenPipeError,
         ):
             error_type = PulseClientConnectionError
         else:
@@ -256,11 +289,18 @@ async def test_async_query_exceptions(
             cp.make_url(ADT_ORB_URI),
             status=200,
         )
-        with pytest.raises(error_type):
-            await p.async_query(
-                ADT_ORB_URI,
-                requires_authentication=False,
-            )
+        exc_info = None
+        try:
+            with pytest.raises(error_type) as exc_info:
+                await p.async_query(
+                    ADT_ORB_URI,
+                    requires_authentication=False,
+                )
+        except AssertionError:
+            actual_error_type = exc_info.type if exc_info else None
+            message = f"Expected {error_type}, got {actual_error_type}"
+            pytest.fail(message)
+
         # only MAX_RETRIES - 1 sleeps since first call won't sleep
         assert (
             mock_sleep.call_count == curr_sleep_count + MAX_RETRIES - 1

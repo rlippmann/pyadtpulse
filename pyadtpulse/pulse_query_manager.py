@@ -12,6 +12,7 @@ from aiohttp import (
     ClientResponse,
     ClientResponseError,
     ServerConnectionError,
+    ServerDisconnectedError,
     ServerTimeoutError,
 )
 from bs4 import BeautifulSoup
@@ -166,26 +167,30 @@ class PulseQueryManager:
 
     @typechecked
     def _handle_network_errors(self, e: Exception) -> None:
-        new_exception: PulseClientConnectionError | PulseServerConnectionError | None = (
-            None
-        )
-        if isinstance(e, (ServerConnectionError, ServerTimeoutError)):
-            new_exception = PulseServerConnectionError(
+        if type(e) in (
+            ServerConnectionError,
+            ServerTimeoutError,
+            ServerDisconnectedError,
+        ):
+            raise PulseServerConnectionError(
                 str(e), self._connection_status.get_backoff()
             )
         if (
-            isinstance(e, (ClientConnectionError))
+            isinstance(e, ClientConnectionError)
             and "Connection refused" in str(e)
             or ("timed out") in str(e)
         ):
-            new_exception = PulseServerConnectionError(
+            raise PulseServerConnectionError(
                 str(e), self._connection_status.get_backoff()
             )
-        if not new_exception:
-            new_exception = PulseClientConnectionError(
+        if isinstance(e, ClientConnectorError) and e.os_error not in (
+            TimeoutError,
+            BrokenPipeError,
+        ):
+            raise PulseServerConnectionError(
                 str(e), self._connection_status.get_backoff()
             )
-        raise new_exception
+        raise PulseClientConnectionError(str(e), self._connection_status.get_backoff())
 
     @typechecked
     async def async_query(
@@ -328,6 +333,7 @@ class PulseQueryManager:
                 ServerTimeoutError,
                 ClientError,
                 ServerConnectionError,
+                ServerDisconnectedError,
             ) as ex:
                 LOG.debug(
                     "Error %s occurred making %s request to %s",
