@@ -64,7 +64,9 @@ class PulseConnection(PulseQueryManager):
         # need to initialize this after the session since we set cookies
         # based on it
         super().__init__(
-            pulse_connection_status, pulse_connection_properties, debug_locks
+            pulse_connection_status,
+            pulse_connection_properties,
+            debug_locks,
         )
         self._pc_attribute_lock = set_debug_lock(
             debug_locks, "pyadtpulse.pc_attribute_lock"
@@ -73,7 +75,9 @@ class PulseConnection(PulseQueryManager):
         self._connection_status = pulse_connection_status
         self._authentication_properties = pulse_authentication
         self._login_backoff = PulseBackoff(
-            "Login", pulse_connection_status._backoff.initial_backoff_interval
+            "Login",
+            pulse_connection_status._backoff.initial_backoff_interval,
+            detailed_debug_logging=self._connection_properties.detailed_debug_logging,
         )
         self._login_in_progress = False
         self._debug_locks = debug_locks

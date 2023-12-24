@@ -17,13 +17,14 @@ class PulseConnectionStatus:
     )
 
     @typechecked
-    def __init__(self, debug_locks: bool = False):
+    def __init__(self, debug_locks: bool = False, detailed_debug_logging=False):
         self._pcs_attribute_lock = set_debug_lock(
             debug_locks, "pyadtpulse.pcs_attribute_lock"
         )
         self._backoff = PulseBackoff(
             "Connection Status",
             initial_backoff_interval=1,
+            detailed_debug_logging=detailed_debug_logging,
         )
         self._authenticated_flag = Event()
 

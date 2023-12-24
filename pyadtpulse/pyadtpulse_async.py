@@ -106,7 +106,9 @@ class PyADTPulseAsync:
             fingerprint=fingerprint,
             debug_locks=debug_locks,
         )
-        self._pulse_connection_status = PulseConnectionStatus(debug_locks=debug_locks)
+        self._pulse_connection_status = PulseConnectionStatus(
+            debug_locks=debug_locks, detailed_debug_logging=detailed_debug_logging
+        )
         self._pulse_properties = PyADTPulseProperties(
             keepalive_interval=keepalive_interval,
             relogin_interval=relogin_interval,
