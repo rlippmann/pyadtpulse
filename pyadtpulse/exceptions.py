@@ -4,7 +4,7 @@ from time import time
 from .pulse_backoff import PulseBackoff
 
 
-class PulseExceptionWithBackoff(RuntimeError):
+class PulseExceptionWithBackoff(Exception):
     """Exception with backoff."""
 
     def __init__(self, message: str, backoff: PulseBackoff):
