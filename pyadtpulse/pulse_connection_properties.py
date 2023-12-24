@@ -192,6 +192,15 @@ class PulseConnectionProperties:
             parts = value.split("-")
             if len(parts) == 2:
                 version_parts = parts[0].split(".")
+                if not (
+                    version_parts[0].isdigit()
+                    and version_parts[1].isdigit()
+                    and version_parts[2].isdigit()
+                    and parts[1].isdigit()
+                ):
+                    raise ValueError(
+                        "API version must be in the form major.minor.patch-subpatch"
+                    )
                 if len(version_parts) == 3 and version_parts[0].isdigit():
                     major_version = int(version_parts[0])
                     if major_version >= 26:
