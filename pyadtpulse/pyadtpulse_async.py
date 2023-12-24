@@ -241,7 +241,7 @@ class PyADTPulseAsync:
         LOG.debug("creating %s", task_name)
 
         while True:
-            relogin_interval = self._pulse_properties.relogin_interval
+            relogin_interval = self._pulse_properties.relogin_interval * 60
             try:
                 await asyncio.sleep(self._pulse_properties.keepalive_interval * 60)
                 if self._pulse_connection_status.retry_after > time.time():
