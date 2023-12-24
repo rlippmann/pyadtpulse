@@ -15,7 +15,7 @@ class PulseExceptionWithBackoff(RuntimeError):
 
     def __str__(self):
         """Return a string representation of the exception."""
-        return f"{self.__class__.__name__}: {super().__str__()}"
+        return f"{self.__class__.__name__}: {self.args[0]}"
 
     def __repr__(self):
         """Return a string representation of the exception."""
@@ -33,10 +33,17 @@ class PulseExceptionWithRetry(PulseExceptionWithBackoff):
             # don't need a backoff count for absolute backoff
             self.backoff.reset_backoff()
             self.backoff.set_absolute_backoff_time(retry_time)
+        else:
+            # hack to reset backoff again
+            current_backoff = backoff.backoff_count - 1
+            self.backoff.reset_backoff()
+            for _ in range(current_backoff):
+                self.backoff.increment_backoff()
+            raise ValueError("retry_time must be in the future")
 
     def __str__(self):
         """Return a string representation of the exception."""
-        return f"{self.__class__.__name__}: {super().__str__()}"
+        return f"{self.__class__.__name__}: {self.args[0]}"
 
     def __repr__(self):
         """Return a string representation of the exception."""
