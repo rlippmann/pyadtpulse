@@ -90,10 +90,10 @@ class PulseBackoff:
         """Reset backoff."""
         with self._b_lock:
             if self._expiration_time < time():
+                if self._detailed_debug_logging and self._backoff_count != 0:
+                    LOG.debug("Pulse backoff %s reset", self._name)
                 self._backoff_count = 0
                 self._expiration_time = 0.0
-            if self._detailed_debug_logging:
-                LOG.debug("Pulse backoff %s reset", self._name)
 
     @typechecked
     def set_absolute_backoff_time(self, backoff_time: float) -> None:
