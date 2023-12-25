@@ -10,7 +10,7 @@
                 "type": "shell",
                 "command": "pytest",
                 "args": [
-                    "--cov=your_module_or_package",
+                    "--cov=pyadtpulse",
                     "--cov-report=html",
                     "${workspaceFolder}/tests"
                 ],
