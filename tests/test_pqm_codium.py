@@ -12,6 +12,7 @@ from aiohttp.client_exceptions import (
     ServerConnectionError,
     ServerDisconnectedError,
 )
+from aiohttp.client_reqrep import ConnectionKey
 from yarl import URL
 
 from pyadtpulse.exceptions import (
@@ -250,20 +251,22 @@ class TestPulseQueryManager:
         expected_error = PulseServerConnectionError(
             "Error occurred", connection_status.get_backoff()
         )
+        ck = ConnectionKey("portal.adtpulse.com", 443, True, None, None, None, None)
 
         async def mock_request(*args, **kwargs):
             raise ClientConnectorError(
-                connection_key=None, os_error=FileNotFoundError("File not found")
+                connection_key=ck, os_error=FileNotFoundError("File not found")
             )
 
         mocker.patch.object(ClientSession, "request", side_effect=mock_request)
 
         # When, Then
         with pytest.raises(PulseServerConnectionError) as ex:
-            await query_manager.async_query("/api/data")
+            await query_manager.async_query("/api/data", requires_authentication=False)
         assert str(ex.value) == str(expected_error)
 
     # can handle Retry-After header in HTTP response
+    @pytest.mark.timeout(70)
     @pytest.mark.asyncio
     async def test_handle_retry_after_header(self, mocker):
         # Given
@@ -298,7 +301,7 @@ class TestPulseQueryManager:
         # Then
         assert exc_info.value.backoff == connection_status.get_backoff()
 
-        assert connection_status.get_backoff().wait_for_backoff.call_count == 1
+        assert connection_status._backoff.wait_for_backoff.call_count == 1
         assert connection_status.authenticated_flag.wait.call_count == 0
         assert connection_properties.session.request.call_count == 1
         assert connection_properties.session.request.call_args[0][0] == "GET"
@@ -671,7 +674,6 @@ class TestPulseQueryManager:
         mocker.patch.object(
             PulseQueryManager, "async_query", side_effect=mock_async_query
         )
-
         # When
         with pytest.raises(PulseClientConnectionError):
             await query_manager.async_query("/api/data")
