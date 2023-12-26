@@ -235,6 +235,7 @@ class PulseConnection(PulseQueryManager):
         """Performs a logout query to the ADT Pulse site."""
         params = {}
         si = ""
+        self._connection_status.authenticated_flag.clear()
         if site_id is not None and site_id != "":
             self._authentication_properties.site_id = site_id
             si = site_id
@@ -255,7 +256,6 @@ class PulseConnection(PulseQueryManager):
             PulseServerConnectionError,
         ) as e:
             LOG.debug("Could not logout from Pulse site: %s", e)
-        self._connection_status.authenticated_flag.clear()
 
     @property
     def is_connected(self) -> bool:
