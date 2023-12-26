@@ -301,3 +301,20 @@ class PulseConnection(PulseQueryManager):
         LOG.debug("Resetting session")
         self._connection_status.authenticated_flag.clear()
         await self._connection_properties.clear_session()
+
+    @property
+    def detailed_debug_logging(self) -> bool:
+        """Return detailed debug logging."""
+        return (
+            self._login_backoff.detailed_debug_logging
+            and self._connection_properties.detailed_debug_logging
+            and self._connection_status.detailed_debug_logging
+        )
+
+    @detailed_debug_logging.setter
+    @typechecked
+    def detailed_debug_logging(self, value: bool):
+        with self._pc_attribute_lock:
+            self._login_backoff.detailed_debug_logging = value
+            self._connection_properties.detailed_debug_logging = value
+            self._connection_status.detailed_debug_logging = value

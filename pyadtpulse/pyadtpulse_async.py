@@ -649,16 +649,9 @@ class PyADTPulseAsync:
     @property
     def detailed_debug_logging(self) -> bool:
         """Return detailed debug logging."""
-        return (
-            self._pulse_connection_properties.detailed_debug_logging
-            and self._pulse_connection_status.get_backoff().detailed_debug_logging
-            and self._detailed_debug_logging
-        )
+        return self._pulse_connection.detailed_debug_logging
 
     @detailed_debug_logging.setter
     def detailed_debug_logging(self, value: bool) -> None:
         """Set detailed debug logging."""
-        self._pulse_connection_properties.detailed_debug_logging = value
-        self._pulse_connection_status.get_backoff().detailed_debug_logging = value
-        with self._pa_attribute_lock:
-            self._detailed_debug_logging = value
+        self._pulse_connection.detailed_debug_logging = value
