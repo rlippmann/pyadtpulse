@@ -231,6 +231,10 @@ class PulseConnectionProperties:
     async def clear_session(self):
         """Clear the session."""
         with self._pci_attribute_lock:
-            if self._session is not None and not self._session.closed:
-                await self._session.close()
+            # remove the old session first to prevent an edge case
+            # where another coroutine might jump in during the await close()
+            # and get the old session.
+            old_session = self._session
             self._session = None
+            if old_session is not None and not old_session.closed:
+                await old_session.close()

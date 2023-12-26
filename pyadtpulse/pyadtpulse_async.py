@@ -262,7 +262,7 @@ class PyADTPulseAsync:
                     LOG.debug("%s: Skipping relogin because not connected", task_name)
                     continue
                 elif should_relogin(relogin_interval):
-                    await self.async_logout()
+                    await self._pulse_connection.quick_logout()
                     try:
                         await self._login_looped(task_name)
                     except (PulseAuthenticationError, PulseMFARequiredError) as ex:
@@ -409,7 +409,7 @@ class PyADTPulseAsync:
                     )
                 except PulseNotLoggedInError:
                     LOG.info("Re-login required to continue ADT Pulse sync check")
-                    await self.async_logout()
+                    await self._pulse_connection.quick_logout()
                     await self._login_looped(task_name)
                     return False
                 except PulseAccountLockedError as ex:
@@ -545,7 +545,7 @@ class PyADTPulseAsync:
         await self._update_sites(soup)
         if self._site is None:
             LOG.error("Could not retrieve any sites, login failed")
-            await self.async_logout()
+            await self._pulse_connection.quick_logout()
             return False
         self._sync_check_exception = None
         self._timeout_task = asyncio.create_task(

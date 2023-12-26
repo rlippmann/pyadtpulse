@@ -292,3 +292,12 @@ class PulseConnection(PulseQueryManager):
         """Set login in progress."""
         with self._pc_attribute_lock:
             self._login_in_progress = value
+
+    async def quick_logout(self) -> None:
+        """Quickly logout.
+
+        This just resets the authenticated flag and clears the ClientSession.
+        """
+        LOG.debug("Resetting session")
+        self._connection_status.authenticated_flag.clear()
+        await self._connection_properties.clear_session()
