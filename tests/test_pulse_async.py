@@ -197,10 +197,15 @@ async def test_wait_for_update(adt_pulse_instance, get_mocked_url):
     await p.async_login()
 
 
+def make_sync_check_pattern(get_mocked_url):
+    return re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
+
+
 @pytest.mark.asyncio
+@pytest.mark.timeout(60)
 async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
     p, response = await adt_pulse_instance
-    pattern = re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
+    pattern = make_sync_check_pattern(get_mocked_url)
 
     def signal_status_change():
         response.get(
@@ -229,7 +234,7 @@ async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
         )
         signal_status_change()
 
-    def close_patio():
+    def close_all():
         response.get(
             get_mocked_url(ADT_ORB_URI),
             body=read_file("orb.html"),
@@ -255,7 +260,7 @@ async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
 
     def setup_sync_check():
         open_patio()
-        close_patio()
+        close_all()
 
     async def test_sync_check_and_orb():
         code, content, _ = await p._pulse_connection.async_query(
@@ -303,19 +308,39 @@ async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
     # do a first run though to make sure aioresponses will work ok
     await test_sync_check_and_orb()
     await p.async_logout()
-    open_patio()
-    add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
-    await p.async_login()
-    task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
-    await asyncio.sleep(3)
-    assert p._sync_task is not None
-    shutdown_event.set()
-    task.cancel()
-    await task
-    await p.async_logout()
-    assert len(p.site.zones) == 13
-    assert p.site.zones_as_dict[11].state == "Open"
     assert p._sync_task is None
+    assert p._timeout_task is None
+    for j in range(2):
+        if j == 0:
+            zone = 11
+        else:
+            zone = 10
+        for i in range(2):
+            if i == 0:
+                if j == 0:
+                    open_patio()
+                else:
+                    open_garage()
+                state = "Open"
+            else:
+                close_all()
+                state = "OK"
+            add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
+            await p.async_login()
+            task = asyncio.create_task(
+                do_wait_for_update(p, shutdown_event), name=f"wait_for_update-{j}-{i}"
+            )
+            await asyncio.sleep(3)
+            assert p._sync_task is not None
+            await p.async_logout()
+            await asyncio.sleep(0)
+            with pytest.raises(PulseNotLoggedInError):
+                await task
+            await asyncio.sleep(0)
+            assert len(p.site.zones) == 13
+            assert p.site.zones_as_dict[zone].state == state
+            assert p._sync_task is None
+    assert p._timeout_task is None
     # assert m.call_count == 2
 
 

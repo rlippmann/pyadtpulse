@@ -42,6 +42,8 @@ LOG = logging.getLogger(__name__)
 SYNC_CHECK_TASK_NAME = "ADT Pulse Sync Check Task"
 KEEPALIVE_TASK_NAME = "ADT Pulse Keepalive Task"
 RELOGIN_BACKOFF_WARNING_THRESHOLD = 5.0 * 60.0
+# how many transient failures to allow before warninging wait_for_update()
+WARN_UPDATE_TASK_THRESHOLD = 4
 
 
 class PyADTPulseAsync:
@@ -214,6 +216,12 @@ class PyADTPulseAsync:
         return self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
 
     def _set_sync_check_exception(self, e: Exception | None) -> None:
+        if (
+            e in (PulseClientConnectionError, PulseServerConnectionError)
+            and self._pulse_connection_status.get_backoff().backoff_count
+            < WARN_UPDATE_TASK_THRESHOLD
+        ):
+            return
         self._sync_check_exception = e
         self._pulse_properties.updates_exist.set()
 
@@ -380,6 +388,9 @@ class PyADTPulseAsync:
             Validates the sync check response received from the ADT Pulse site.
             Returns:
                 bool: True if the sync check response is valid, False otherwise.
+
+            Raises:
+                PulseAccountLockedError if the account is locked and no retry time is available.
             """
             if not handle_response(code, url, logging.ERROR, "Error querying ADT sync"):
                 return False
