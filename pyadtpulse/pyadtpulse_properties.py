@@ -26,7 +26,6 @@ class PyADTPulseProperties:
         "_login_exception",
         "_relogin_interval",
         "_keepalive_interval",
-        "_detailed_debug_logging",
         "_site",
     )
 
@@ -53,7 +52,6 @@ class PyADTPulseProperties:
         self,
         keepalive_interval: int = ADT_DEFAULT_KEEPALIVE_INTERVAL,
         relogin_interval: int = ADT_DEFAULT_RELOGIN_INTERVAL,
-        detailed_debug_logging: bool = False,
         debug_locks: bool = False,
     ) -> None:
         """Create a PyADTPulse properties object.
@@ -75,7 +73,6 @@ class PyADTPulseProperties:
         self._site: ADTPulseSite | None = None
         self.keepalive_interval = keepalive_interval
         self.relogin_interval = relogin_interval
-        self._detailed_debug_logging = detailed_debug_logging
 
     @property
     def relogin_interval(self) -> int:

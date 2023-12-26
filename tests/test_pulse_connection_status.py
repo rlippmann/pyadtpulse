@@ -60,7 +60,7 @@ class TestPulseConnectionStatus:
         Test that increment_backoff can be called without errors.
         """
         pcs = PulseConnectionStatus()
-        pcs.increment_backoff()
+        pcs.get_backoff().increment_backoff()
 
     # retry_after can be set to a time in the future
     def test_set_retry_after_past_time_fixed(self):
@@ -125,7 +125,7 @@ class TestPulseConnectionStatus:
         Test that reset_backoff can be called without errors.
         """
         pcs = PulseConnectionStatus()
-        pcs.reset_backoff()
+        pcs.get_backoff().reset_backoff()
 
     # authenticated_flag can be set to True
     def test_authenticated_flag_set_to_true(self):
@@ -162,14 +162,15 @@ class TestPulseConnectionStatus:
         assert backoff1 is backoff2
 
     # increment_backoff increases the backoff count by 1
-    def test_increment_backoff(self):
+    def test_increment_backoff2(self):
         """
         Test that increment_backoff increases the backoff count by 1.
         """
         pcs = PulseConnectionStatus()
-        initial_backoff_count = pcs.get_backoff().backoff_count
-        pcs.increment_backoff()
-        new_backoff_count = pcs.get_backoff().backoff_count
+        backoff = pcs.get_backoff()
+        initial_backoff_count = backoff.backoff_count
+        backoff.increment_backoff()
+        new_backoff_count = backoff.backoff_count
         assert new_backoff_count == initial_backoff_count + 1
 
     # reset_backoff sets the backoff count to 0 and the expiration time to 0.0
@@ -178,7 +179,8 @@ class TestPulseConnectionStatus:
         Test that reset_backoff sets the backoff count to 0 and the expiration time to 0.0.
         """
         pcs = PulseConnectionStatus()
-        pcs.increment_backoff()
-        pcs.reset_backoff()
-        assert pcs.get_backoff().backoff_count == 0
-        assert pcs.get_backoff().expiration_time == 0.0
+        backoff = pcs.get_backoff()
+        backoff.increment_backoff()
+        backoff.reset_backoff()
+        assert backoff.backoff_count == 0
+        assert backoff.expiration_time == 0.0

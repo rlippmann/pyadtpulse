@@ -36,7 +36,18 @@ class PulseBackoff:
         debug_locks: bool = False,
         detailed_debug_logging=False,
     ) -> None:
-        """Initialize backoff."""
+        """Initialize backoff.
+
+        Args:
+            name (str): Name of the backoff.
+            initial_backoff_interval (float): Initial backoff interval in seconds.
+            max_backoff_interval (float, optional): Maximum backoff interval in seconds.
+                Defaults to ADT_MAX_BACKOFF.
+            threshold (int, optional): Threshold for backoff. Defaults to 0.
+            debug_locks (bool, optional): Enable debug locks. Defaults to False.
+            detailed_debug_logging (bool, optional): Enable detailed debug logging.
+                Defaults to False.
+        """
         self._check_intervals(initial_backoff_interval, max_backoff_interval)
         self._b_lock = set_debug_lock(debug_locks, "pyadtpulse._b_lock")
         self._initial_backoff_interval = initial_backoff_interval
@@ -164,3 +175,16 @@ class PulseBackoff:
     def name(self) -> str:
         """Return name."""
         return self._name
+
+    @property
+    def detailed_debug_logging(self) -> bool:
+        """Return detailed debug logging."""
+        with self._b_lock:
+            return self._detailed_debug_logging
+
+    @detailed_debug_logging.setter
+    @typechecked
+    def detailed_debug_logging(self, new_value: bool) -> None:
+        """Set detailed debug logging."""
+        with self._b_lock:
+            self._detailed_debug_logging = new_value

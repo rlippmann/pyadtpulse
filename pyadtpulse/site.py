@@ -36,9 +36,9 @@ class ADTPulseSite(ADTPulseSiteProperties):
         """Initialize.
 
         Args:
-            adt_service (PyADTPulse): a PyADTPulse object
-            site_id (str): site ID
-            name (str): site name
+            pulse_connection (PulseConnection): Pulse connection.
+            site_id (str): Site ID.
+            name (str): Site name.
         """
         self._pulse_connection = pulse_connection
         super().__init__(site_id, name, pulse_connection.debug_locks)

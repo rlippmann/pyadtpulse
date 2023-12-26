@@ -21,6 +21,13 @@ class PulseConnectionStatus:
         self._pcs_attribute_lock = set_debug_lock(
             debug_locks, "pyadtpulse.pcs_attribute_lock"
         )
+        """Initialize the connection status object.
+
+        Args:
+            debug_locks (bool, optional): Enable debug locks. Defaults to False.
+            detailed_debug_logging (bool, optional): Enable detailed debug logging for the backoff.
+                Defaults to False.
+        """
         self._backoff = PulseBackoff(
             "Connection Status",
             initial_backoff_interval=1,
@@ -50,13 +57,3 @@ class PulseConnectionStatus:
     def get_backoff(self) -> PulseBackoff:
         """Get the backoff object."""
         return self._backoff
-
-    def increment_backoff(self) -> None:
-        """Increment the backoff."""
-        with self._pcs_attribute_lock:
-            self._backoff.increment_backoff()
-
-    def reset_backoff(self) -> None:
-        """Reset the backoff."""
-        with self._pcs_attribute_lock:
-            self._backoff.reset_backoff()
