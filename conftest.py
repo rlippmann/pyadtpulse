@@ -269,7 +269,7 @@ def add_custom_response(
 def add_signin(
     signin_type: LoginType, mocked_server_responses, get_mocked_url, read_file
 ):
-    if signin_type != LoginType.SUCCESS:
+    if signin_type != LoginType.SUCCESS and signin_type != LoginType.MFA:
         add_custom_response(
             mocked_server_responses,
             get_mocked_url,

@@ -869,6 +869,7 @@ async def test_absolute_backoff_time(mock_sleep, freeze_time_to_now):
 
     # Act
     backoff.set_absolute_backoff_time(time() + 100)
+    assert backoff._backoff_count == 0
     backoff.reset_backoff()
     # make sure backoff can't be reset
     assert backoff.expiration_time == time() + 100

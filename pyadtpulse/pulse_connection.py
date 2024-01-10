@@ -128,23 +128,18 @@ class PulseConnection(PulseQueryManager):
                     if "Try again in" in error_text:
                         if (retry_after := extract_seconds_from_string(error_text)) > 0:
                             raise PulseAccountLockedError(
-                                f"Pulse account locked {retry_after/60} minutes for too many failed login attempts",
                                 self._login_backoff,
                                 retry_after + time(),
                             )
                     elif "You have not yet signed in" in error_text:
-                        raise PulseNotLoggedInError(
-                            "Pulse not logged in", self._login_backoff
-                        )
+                        raise PulseNotLoggedInError(self._login_backoff)
                     else:
                         # FIXME: not sure if this is true
-                        raise PulseAuthenticationError(error_text, self._login_backoff)
+                        raise PulseAuthenticationError(self._login_backoff)
             else:
                 url = self._connection_properties.make_url(ADT_MFA_FAIL_URI)
                 if url == response_url_string:
-                    raise PulseMFARequiredError(
-                        "MFA required to log into Pulse site", self._login_backoff
-                    )
+                    raise PulseMFARequiredError(self._login_backoff)
 
         soup = make_soup(
             response[0],
@@ -163,7 +158,7 @@ class PulseConnection(PulseQueryManager):
         response_url_string = str(response[2])
         if url != response_url_string:
             determine_error_type()
-            raise PulseAuthenticationError("Unknown error", self._login_backoff)
+            raise PulseAuthenticationError(self._login_backoff)
         return soup
 
     @typechecked
@@ -198,6 +193,14 @@ class PulseConnection(PulseQueryManager):
         if self.login_in_progress:
             return None
         self._connection_status.authenticated_flag.clear()
+        # just raise exceptions if we're not going to be able to log in
+        lockout_time = self._login_backoff.expiration_time
+        if lockout_time > time():
+            raise PulseAccountLockedError(self._login_backoff, lockout_time)
+        cs_backoff = self._connection_status.get_backoff()
+        lockout_time = cs_backoff.expiration_time
+        if lockout_time > time():
+            raise PulseServiceTemporarilyUnavailableError(cs_backoff, lockout_time)
         self.login_in_progress = True
         data = {
             "usernameForm": self._authentication_properties.username,
@@ -318,3 +321,7 @@ class PulseConnection(PulseQueryManager):
             self._login_backoff.detailed_debug_logging = value
             self._connection_properties.detailed_debug_logging = value
             self._connection_status.detailed_debug_logging = value
+
+    def get_login_backoff(self) -> PulseBackoff:
+        """Return login backoff."""
+        return self._login_backoff

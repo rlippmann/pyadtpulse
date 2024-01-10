@@ -1,6 +1,6 @@
 """Pulse Query Manager."""
 from logging import getLogger
-from asyncio import TimeoutError, current_task, wait_for
+from asyncio import TimeoutError, wait_for
 from datetime import datetime
 from http import HTTPStatus
 from time import time
@@ -96,43 +96,6 @@ class PulseQueryManager:
         )
 
     @typechecked
-    def _set_retry_after(self, code: int, retry_after: str) -> None:
-        """
-        Check the "Retry-After" header in the response and set retry_after property
-        based upon it.
-
-        Will also set the connection status failure reason and rety after
-        properties.
-
-        Parameters:
-            code (int): The HTTP response code
-            retry_after (str): The value of the "Retry-After" header
-
-        Returns:
-            None.
-
-        Raises:
-            PulseServiceTemporarilyUnavailableError: If the server returns a "Retry-After" header.
-        """
-        if retry_after.isnumeric():
-            retval = float(retry_after) + time()
-        else:
-            try:
-                retval = datetime.strptime(
-                    retry_after, "%a, %d %b %Y %H:%M:%S %Z"
-                ).timestamp()
-            except ValueError:
-                return
-        description = self._get_http_status_description(code)
-        message = (
-            f"Task {current_task()} received Retry-After {retval} due to {description}"
-        )
-
-        raise PulseServiceTemporarilyUnavailableError(
-            message, self._connection_status.get_backoff(), retval
-        )
-
-    @typechecked
     def _handle_http_errors(
         self, return_value: tuple[int, str | None, URL | None, str | None]
     ) -> None:
@@ -146,19 +109,40 @@ class PulseQueryManager:
             PulseServerConnectionError: If the server returns an error code.
             PulseServiceTemporarilyUnavailableError: If the server returns a
                 Retry-After header."""
-        if return_value[0] is not None and return_value[3] is not None:
-            self._set_retry_after(
-                return_value[0],
-                return_value[3],
-            )
+
+        def get_retry_after(retry_after: str) -> int | None:
+            """
+            Parse the value of the "Retry-After" header.
+
+            Parameters:
+                retry_after (str): The value of the "Retry-After" header
+
+            Returns:
+                int | None: The timestamp in seconds to wait before retrying, or None if the header is invalid.
+            """
+            if retry_after.isnumeric():
+                retval = int(retry_after) + int(time())
+            else:
+                try:
+                    retval = int(
+                        datetime.strptime(
+                            retry_after, "%a, %d %b %Y %H:%M:%S %Z"
+                        ).timestamp()
+                    )
+                except ValueError:
+                    return None
+            return retval
+
         if return_value[0] in (
             HTTPStatus.TOO_MANY_REQUESTS,
             HTTPStatus.SERVICE_UNAVAILABLE,
         ):
+            retry = None
+            if return_value[3]:
+                retry = get_retry_after(return_value[3])
             raise PulseServiceTemporarilyUnavailableError(
-                f"HTTP error {return_value[0]}: {return_value[1]}",
                 self._connection_status.get_backoff(),
-                None,
+                retry,
             )
         raise PulseServerConnectionError(
             f"HTTP error {return_value[0]}: {return_value[1]} connecting to {return_value[2]}",
@@ -240,6 +224,12 @@ class PulseQueryManager:
                 if not self._connection_properties.api_version:
                     raise ValueError("Could not determine API version for connection")
 
+        retry_after = self._connection_status.retry_after
+        now = time()
+        if retry_after > now:
+            raise PulseServiceTemporarilyUnavailableError(
+                self._connection_status.get_backoff(), retry_after
+            )
         await setup_query()
         url = self._connection_properties.make_url(uri)
         headers = extra_headers if extra_headers is not None else {}
@@ -295,7 +285,6 @@ class PulseQueryManager:
                             uri,
                         )
                         raise PulseNotLoggedInError(
-                            f"{method} for {uri} timed out waiting for authenticated flag to be set",
                             self._connection_status.get_backoff(),
                         ) from ex
                 async with self._connection_properties.session.request(

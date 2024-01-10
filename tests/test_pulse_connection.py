@@ -119,7 +119,7 @@ async def test_multiple_login(
 
 @pytest.mark.asyncio
 async def test_account_lockout(
-    mocked_server_responses, mock_sleep, get_mocked_url, freeze_time_to_now, read_file
+    mocked_server_responses, mock_sleep, get_mocked_url, read_file, freeze_time_to_now
 ):
     pc = setup_pulse_connection()
     add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
@@ -138,10 +138,10 @@ async def test_account_lockout(
     # don't set backoff on locked account, just set expiration time on backoff
     assert pc._login_backoff.backoff_count == 0
     assert mock_sleep.call_count == 0
+    freeze_time_to_now.tick(delta=datetime.timedelta(seconds=(60 * 30) + 1))
     add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
-    assert mock_sleep.call_count == 1
-    assert mock_sleep.call_args_list[0][0][0] == 60 * 30
+    assert mock_sleep.call_count == 0
     assert pc.is_connected
     assert pc._connection_status.authenticated_flag.is_set()
     freeze_time_to_now.tick(delta=datetime.timedelta(seconds=60 * 30 + 1))
@@ -149,7 +149,7 @@ async def test_account_lockout(
     with pytest.raises(PulseAccountLockedError):
         await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 0
-    assert mock_sleep.call_count == 1
+    assert mock_sleep.call_count == 0
 
 
 @pytest.mark.asyncio

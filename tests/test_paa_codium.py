@@ -84,24 +84,24 @@ class TestPyADTPulseAsync:
 
     # The async_logout method successfully logs the user out of the ADT Pulse cloud service.
     @pytest.mark.asyncio
-    async def test_async_logout_successfully_logs_out(self, mocker):
+    async def test_async_logout_successfully_logs_out(
+        self, mocked_server_responses, get_mocked_url, read_file
+    ):
         # Arrange
         pulse = PyADTPulseAsync(
             username="test_user@example.com",
             password="test_password",
             fingerprint="test_fingerprint",
         )
-        mocker.patch.object(pulse._pulse_connection, "async_query")
-
+        add_signin(
+            LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file
+        )
         # Act
         await pulse.async_login()
         await pulse.async_logout()
 
         # Assert
         assert not pulse.is_connected
-        pulse._pulse_connection.async_query.assert_called_once_with(
-            pulse.site.id, "POST"
-        )
 
     # The async_update method checks the ADT Pulse cloud service for updates and returns True if updates are available.
     @pytest.mark.asyncio

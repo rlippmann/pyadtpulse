@@ -81,10 +81,12 @@ class TestCodeUnderTest:
         backoff = PulseBackoff("test", 1.0)
         backoff.increment_backoff()
         retry_time = time() - 10
-        with pytest.raises(ValueError):
-            PulseExceptionWithRetry("retry must be in the future", backoff, retry_time)
+        with pytest.raises(PulseExceptionWithRetry):
+            raise PulseExceptionWithRetry(
+                "retry must be in the future", backoff, retry_time
+            )
         # 1 backoff for increment
-        assert backoff.backoff_count == 1
+        assert backoff.backoff_count == 2
         assert backoff.expiration_time == 0.0
 
     # PulseServiceTemporarilyUnavailableError does not reset the backoff count or set an absolute backoff time if retry time is in the past
@@ -92,17 +94,15 @@ class TestCodeUnderTest:
         backoff = PulseBackoff("test", 1.0)
         backoff.increment_backoff()
         retry_time = time() - 10
-        with pytest.raises(ValueError):
-            PulseServiceTemporarilyUnavailableError(
-                "retry must be in the future", backoff, retry_time
-            )
-        assert backoff.backoff_count == 1
+        with pytest.raises(PulseServiceTemporarilyUnavailableError):
+            raise PulseServiceTemporarilyUnavailableError(backoff, retry_time)
+        assert backoff.backoff_count == 2
         assert backoff.expiration_time == 0.0
 
     # PulseAuthenticationError is a subclass of PulseExceptionWithBackoff and PulseLoginException
     def test_pulse_authentication_error_inheritance(self):
         backoff = PulseBackoff("test", 1.0)
-        exception = PulseAuthenticationError("error", backoff)
+        exception = PulseAuthenticationError(backoff)
         assert isinstance(exception, PulseExceptionWithBackoff)
         assert isinstance(exception, PulseLoginException)
 
@@ -110,15 +110,17 @@ class TestCodeUnderTest:
     def test_pulse_service_temporarily_unavailable_error(self):
         backoff = PulseBackoff("test", 1.0)
         exception = PulseServiceTemporarilyUnavailableError(
-            "error", backoff, retry_time=5.0
+            backoff, retry_time=time() + 10.0
         )
+        assert backoff.backoff_count == 0
         assert isinstance(exception, PulseExceptionWithRetry)
         assert isinstance(exception, PulseConnectionError)
 
     # PulseAccountLockedError is a subclass of PulseExceptionWithRetry and PulseLoginException
     def test_pulse_account_locked_error_inheritance(self):
         backoff = PulseBackoff("test", 1.0)
-        exception = PulseAccountLockedError("error", backoff, 10.0)
+        exception = PulseAccountLockedError(backoff, time() + 10.0)
+        assert backoff.backoff_count == 0
         assert isinstance(exception, PulseExceptionWithRetry)
         assert isinstance(exception, PulseLoginException)
 
@@ -139,14 +141,14 @@ class TestCodeUnderTest:
     # PulseExceptionWithRetry string representation includes the class name, message, backoff object, and retry time
     def test_pulse_exception_with_retry_string_representation_fixed(self):
         backoff = PulseBackoff("test", 1.0)
-        exception = PulseExceptionWithRetry("error", backoff, 1234567890.0)
+        exception = PulseExceptionWithRetry("error", backoff, time() + 10)
         expected_string = "PulseExceptionWithRetry: error"
         assert str(exception) == expected_string
 
     # PulseNotLoggedInError is a subclass of PulseExceptionWithBackoff and PulseLoginException
     def test_pulse_not_logged_in_error_inheritance(self):
         backoff = PulseBackoff("test", 1.0)
-        exception = PulseNotLoggedInError("error", backoff)
+        exception = PulseNotLoggedInError(backoff)
         assert isinstance(exception, PulseExceptionWithBackoff)
         assert isinstance(exception, PulseLoginException)
 

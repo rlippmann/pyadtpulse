@@ -126,7 +126,9 @@ class PyADTPulseAsync:
         self._timeout_task: asyncio.Task | None = None
         self._site: ADTPulseSite | None = None
         self._detailed_debug_logging = detailed_debug_logging
-        self._sync_check_exception: Exception | None = None
+        pc_backoff = self._pulse_connection.get_login_backoff()
+        self._sync_check_exception: Exception | None = PulseNotLoggedInError(pc_backoff)
+        pc_backoff.reset_backoff()
 
     def __repr__(self) -> str:
         """Object representation."""
@@ -222,7 +224,7 @@ class PyADTPulseAsync:
             < WARN_UPDATE_TASK_THRESHOLD
         ):
             return
-        self._sync_check_exception = e
+        self.sync_check_exception = e
         self._pulse_properties.updates_exist.set()
 
     async def _keepalive_task(self) -> None:
@@ -298,6 +300,15 @@ class PyADTPulseAsync:
                 LOG.debug("%s cancelled", task_name)
                 return
 
+    async def _clean_done_tasks(self) -> None:
+        with self._pa_attribute_lock:
+            if self._sync_task is not None and self._sync_task.done():
+                await self._sync_task
+                self._sync_task = None
+            if self._timeout_task is not None and self._timeout_task.done():
+                await self._timeout_task
+                self._timeout_task = None
+
     async def _cancel_task(self, task: asyncio.Task | None) -> None:
         """
         Cancel a given asyncio task.
@@ -305,6 +316,7 @@ class PyADTPulseAsync:
         Args:
             task (asyncio.Task | None): The task to be cancelled.
         """
+        await self._clean_done_tasks()
         if task is None:
             return
         task_name = task.get_name()
@@ -315,10 +327,11 @@ class PyADTPulseAsync:
         except asyncio.CancelledError:
             pass
         if task == self._sync_task:
-            e = PulseNotLoggedInError(
-                "Pulse logout has been called", self._pulse_connection.login_backoff
-            )
-            self._set_sync_check_exception(e)
+            with self._pa_attribute_lock:
+                self._sync_task = None
+        else:
+            with self._pa_attribute_lock:
+                self._timeout_task = None
         LOG.debug("%s successfully cancelled", task_name)
 
     async def _login_looped(self, task_name: str) -> None:
@@ -344,8 +357,6 @@ class PyADTPulseAsync:
             except (
                 PulseClientConnectionError,
                 PulseServerConnectionError,
-                PulseServiceTemporarilyUnavailableError,
-                PulseAccountLockedError,
             ) as ex:
                 LOG.log(
                     log_level,
@@ -391,41 +402,24 @@ class PyADTPulseAsync:
 
             Raises:
                 PulseAccountLockedError if the account is locked and no retry time is available.
+                PulseAuthenticationError if the ADT Pulse site returns an authentication error.
+                PulseMFAError if the ADT Pulse site returns an MFA error.
+                PulseNotLoggedInError if the ADT Pulse site returns a not logged in error.
             """
-            if not handle_response(code, url, logging.ERROR, "Error querying ADT sync"):
-                return False
-            # this should have already been handled
             if response_text is None:
                 LOG.warning("Internal Error: response_text is None")
                 return False
             pattern = r"\d+[-]\d+[-]\d+"
             if not re.match(pattern, response_text):
                 LOG.warning(
-                    "Unexpected sync check format (%s)",
+                    "Unexpected sync check format",
                 )
                 try:
                     self._pulse_connection.check_login_errors(
                         (code, response_text, url)
                     )
-                except PulseNotLoggedInError:
-                    LOG.info("Re-login required to continue ADT Pulse sync check")
-                    await self._pulse_connection.quick_logout()
-                    await self._login_looped(task_name)
-                    return False
-                except PulseAccountLockedError as ex:
-                    self._set_sync_check_exception(ex)
-                    if ex.retry_time is not None:
-                        LOG.info(
-                            "Pulse account locked, sleeping for %s seconds and relogging in.",
-                            time.time() - ex.retry_time,
-                        )
-                        await asyncio.sleep(time.time() - ex.retry_time)
-                        await self._login_looped(task_name)
-                        return False
-                    else:
-                        raise
                 except PulseServerConnectionError:
-                    LOG.info("Server connection issue, continuing")
+                    LOG.debug("Server connection issue, continuing")
                     return False
             return True
 
@@ -434,7 +428,7 @@ class PyADTPulseAsync:
                 try:
                     success = await self.async_update()
                 except PulseGatewayOfflineError as e:
-                    if self._sync_check_exception != e:
+                    if self.sync_check_exception != e:
                         LOG.debug(
                             "Pulse gateway offline, update failed in task %s", task_name
                         )
@@ -460,6 +454,12 @@ class PyADTPulseAsync:
                 return True
             return False
 
+        async def shutdown_task(ex: Exception):
+            await self._pulse_connection.quick_logout()
+            await self._cancel_task(self._timeout_task)
+            self._set_sync_check_exception(ex)
+
+        transient_exception_count = 0
         while True:
             try:
                 await self.site.gateway.backoff.wait_for_backoff()
@@ -478,10 +478,25 @@ class PyADTPulseAsync:
                 except (
                     PulseClientConnectionError,
                     PulseServerConnectionError,
-                    PulseServiceTemporarilyUnavailableError,
                 ) as e:
-                    self._set_sync_check_exception(e)
+                    # temporarily unavailble errors should be reported immediately
+                    # since the next query will sleep until the retry-after is over
+                    transient_exception_count += 1
+                    if transient_exception_count > WARN_UPDATE_TASK_THRESHOLD:
+                        self._set_sync_check_exception(e)
                     continue
+                except (
+                    PulseServiceTemporarilyUnavailableError,
+                    PulseNotLoggedInError,
+                ) as e:
+                    if isinstance(e, PulseServiceTemporarilyUnavailableError):
+                        status = "temporarily unavailable"
+                    else:
+                        status = "not logged in"
+                    LOG.warning("Pulse service %s, ending %s task", status, task_name)
+                    await shutdown_task(e)
+                    return
+                self._set_sync_check_exception(None)
                 if not handle_response(
                     code, url, logging.WARNING, "Error querying ADT sync"
                 ):
@@ -496,13 +511,14 @@ class PyADTPulseAsync:
                     PulseAuthenticationError,
                     PulseMFARequiredError,
                     PulseAccountLockedError,
+                    PulseNotLoggedInError,
                 ) as ex:
-                    self._set_sync_check_exception(ex)
                     LOG.error(
-                        "Task %s exiting due to error relogging into Pulse: %s",
+                        "Task %s exiting due to error: %s",
                         task_name,
                         ex.args[0],
                     )
+                    await shutdown_task(ex)
                     return
                 if handle_updates_exist():
                     last_sync_check_was_different = True
@@ -539,15 +555,18 @@ class PyADTPulseAsync:
         soup = await self._pulse_connection.async_do_login_query()
         if soup is None:
             return False
+        self._set_sync_check_exception(None)
         # if tasks are started, we've already logged in before
-        if self._sync_task is not None or self._timeout_task is not None:
+        # clean up completed tasks first
+        await self._clean_done_tasks()
+        if self._timeout_task is not None:
             return True
         await self._update_sites(soup)
         if self._site is None:
             LOG.error("Could not retrieve any sites, login failed")
             await self._pulse_connection.quick_logout()
             return False
-        self._sync_check_exception = None
+        self.sync_check_exception = None
         self._timeout_task = asyncio.create_task(
             self._keepalive_task(), name=KEEPALIVE_TASK_NAME
         )
@@ -562,10 +581,12 @@ class PyADTPulseAsync:
         LOG.info(
             "Logging %s out of ADT Pulse", self._authentication_properties.username
         )
+        self._set_sync_check_exception(
+            PulseNotLoggedInError(self._pulse_connection.get_login_backoff())
+        )
         if asyncio.current_task() not in (self._sync_task, self._timeout_task):
             await self._cancel_task(self._timeout_task)
             await self._cancel_task(self._sync_task)
-            self._timeout_task = self._sync_task = None
         await self._pulse_connection.async_do_logout_query(self.site.id)
 
     async def async_update(self) -> bool:
@@ -599,10 +620,9 @@ class PyADTPulseAsync:
             Every exception from exceptions.py are possible
         """
         # FIXME?: This code probably won't work with multiple waiters.
-        if not self.is_connected:
-            raise PulseNotLoggedInError(
-                "Not connected to Pulse", self._pulse_connection.login_backoff
-            )
+        await self._clean_done_tasks()
+        if self.sync_check_exception:
+            raise self.sync_check_exception
         with self._pa_attribute_lock:
             if self._sync_task is None:
                 coro = self._sync_check_task()
@@ -613,8 +633,8 @@ class PyADTPulseAsync:
 
         await self._pulse_properties.updates_exist.wait()
         self._pulse_properties.updates_exist.clear()
-        if self._sync_check_exception:
-            raise self._sync_check_exception
+        if self.sync_check_exception:
+            raise self.sync_check_exception
 
     @property
     def sites(self) -> list[ADTPulseSite]:
@@ -655,3 +675,15 @@ class PyADTPulseAsync:
     def detailed_debug_logging(self, value: bool) -> None:
         """Set detailed debug logging."""
         self._pulse_connection.detailed_debug_logging = value
+
+    @property
+    def sync_check_exception(self) -> Exception | None:
+        """Return sync check exception."""
+        with self._pa_attribute_lock:
+            return self._sync_check_exception
+
+    @sync_check_exception.setter
+    def sync_check_exception(self, value: Exception | None) -> None:
+        """Set sync check exception."""
+        with self._pa_attribute_lock:
+            self._sync_check_exception = value

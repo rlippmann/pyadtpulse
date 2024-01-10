@@ -105,9 +105,9 @@ async def test_query_orb(
 @pytest.mark.asyncio
 async def test_retry_after(
     mocked_server_responses,
-    mock_sleep,
     freeze_time_to_now,
     get_mocked_connection_properties,
+    mock_sleep,
 ):
     """Test retry after."""
 
@@ -126,26 +126,19 @@ async def test_retry_after(
     )
     with pytest.raises(PulseServiceTemporarilyUnavailableError):
         await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert mock_sleep.call_count == 0
     # make sure we can't override the retry
     s.get_backoff().reset_backoff()
-    assert s.get_backoff().expiration_time == (now + float(retry_after_time))
-    mocked_server_responses.get(
-        cp.make_url(ADT_ORB_URI),
-        status=200,
-    )
-    await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert mock_sleep.call_count == 1
-    mock_sleep.assert_called_once_with(float(retry_after_time))
+    assert s.get_backoff().expiration_time == int(now + float(retry_after_time))
+    with pytest.raises(PulseServiceTemporarilyUnavailableError):
+        await p.async_query(ADT_ORB_URI, requires_authentication=False)
     frozen_time.tick(timedelta(seconds=retry_after_time + 1))
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         status=200,
     )
+    # this should succeed
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    # shouldn't sleep since past expiration time
-    assert mock_sleep.call_count == 1
-    frozen_time.tick(timedelta(seconds=1))
+
     now = time.time()
     retry_date = now + float(retry_after_time)
     retry_date_str = datetime.fromtimestamp(retry_date).strftime(
@@ -162,27 +155,33 @@ async def test_retry_after(
     )
     with pytest.raises(PulseServiceTemporarilyUnavailableError):
         await p.async_query(ADT_ORB_URI, requires_authentication=False)
+
+    frozen_time.tick(timedelta(seconds=new_retry_after - 1))
+    with pytest.raises(PulseServiceTemporarilyUnavailableError):
+        await p.async_query(ADT_ORB_URI, requires_authentication=False)
+    frozen_time.tick(timedelta(seconds=2))
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         status=200,
     )
+    # should succeed
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert mock_sleep.call_count == 2
-    assert mock_sleep.call_args_list[1][0][0] == new_retry_after
-    frozen_time.tick(timedelta(seconds=retry_after_time + 1))
     # unavailable with no retry after
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         status=503,
     )
+    frozen_time.tick(timedelta(seconds=retry_after_time + 1))
     with pytest.raises(PulseServiceTemporarilyUnavailableError):
         await p.async_query(ADT_ORB_URI, requires_authentication=False)
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
         status=200,
     )
+    # should succeed
+    frozen_time.tick(timedelta(seconds=1))
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert mock_sleep.call_count == 3
+
     # retry after in the past
     mocked_server_responses.get(
         cp.make_url(ADT_ORB_URI),
@@ -195,8 +194,9 @@ async def test_retry_after(
         cp.make_url(ADT_ORB_URI),
         status=200,
     )
+    frozen_time.tick(timedelta(seconds=1))
+    # should succeed
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert mock_sleep.call_count == 4
 
 
 @pytest.mark.asyncio

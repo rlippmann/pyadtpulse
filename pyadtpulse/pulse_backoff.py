@@ -122,6 +122,7 @@ class PulseBackoff:
                     ),
                 )
             self._expiration_time = backoff_time
+            self._backoff_count = 0
 
     async def wait_for_backoff(self) -> None:
         """Wait for backoff."""

@@ -11,13 +11,19 @@ from pyadtpulse.const import (
     ADT_DEVICE_URI,
     ADT_LOGIN_URI,
     ADT_LOGOUT_URI,
+    ADT_MFA_FAIL_URI,
     ADT_ORB_URI,
     ADT_SUMMARY_URI,
     ADT_SYNC_CHECK_URI,
     ADT_TIMEOUT_URI,
     DEFAULT_API_HOST,
 )
-from pyadtpulse.exceptions import PulseNotLoggedInError
+from pyadtpulse.exceptions import (
+    PulseAccountLockedError,
+    PulseAuthenticationError,
+    PulseMFARequiredError,
+    PulseNotLoggedInError,
+)
 from pyadtpulse.pyadtpulse_async import PyADTPulseAsync
 
 DEFAULT_SYNC_CHECK = "234532-456432-0"
@@ -368,3 +374,38 @@ async def test_infinite_sync_check(adt_pulse_instance, get_mocked_url, read_file
     shutdown_event.set()
     task.cancel()
     await task
+
+
+@pytest.mark.asyncio
+async def test_sync_check_errors(adt_pulse_instance, get_mocked_url, read_file, mocker):
+    p, response = await adt_pulse_instance
+    pattern = re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
+
+    shutdown_event = asyncio.Event()
+    shutdown_event.clear()
+    for test_type in (
+        (LoginType.FAIL, PulseAuthenticationError),
+        (LoginType.NOT_SIGNED_IN, PulseNotLoggedInError),
+        (LoginType.MFA, PulseMFARequiredError),
+        (LoginType.LOCKED, PulseAccountLockedError),
+    ):
+        redirect = ADT_LOGIN_URI
+        if test_type[0] == LoginType.MFA:
+            redirect = ADT_MFA_FAIL_URI
+        response.get(
+            pattern, status=302, headers={"Location": get_mocked_url(redirect)}
+        )
+        add_signin(test_type[0], response, get_mocked_url, read_file)
+        task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
+        with pytest.raises(test_type[1]):
+            await task
+        await asyncio.sleep(0.5)
+        # assert p._sync_task is None or p._sync_task.done()
+        # assert p._timeout_task is None or p._timeout_task.done()
+        if test_type[0] == LoginType.MFA:
+            # pop the post MFA redirect from the responses
+            with pytest.raises(PulseMFARequiredError):
+                await p.async_login()
+        add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
+        if test_type[0] != LoginType.LOCKED:
+            await p.async_login()

@@ -1,7 +1,15 @@
 """Pulse exceptions."""
+import datetime
 from time import time
 
 from .pulse_backoff import PulseBackoff
+
+
+def compute_retry_time(retry_time: float | None) -> str:
+    """Compute the retry time."""
+    if not retry_time:
+        return "indefinitely"
+    return str(datetime.datetime.fromtimestamp(retry_time))
 
 
 class PulseExceptionWithBackoff(Exception):
@@ -23,23 +31,20 @@ class PulseExceptionWithBackoff(Exception):
 
 
 class PulseExceptionWithRetry(PulseExceptionWithBackoff):
-    """Exception with backoff."""
+    """Exception with backoff
+
+    If retry_time is None, or is in the past, then just the backoff count will be incremented.
+    """
 
     def __init__(self, message: str, backoff: PulseBackoff, retry_time: float | None):
         """Initialize exception."""
+        # super.__init__ will increment the backoff count
         super().__init__(message, backoff)
         self.retry_time = retry_time
         if retry_time and retry_time > time():
-            # don't need a backoff count for absolute backoff
-            self.backoff.reset_backoff()
+            # set the absolute backoff time will remove the backoff count
             self.backoff.set_absolute_backoff_time(retry_time)
-        else:
-            # hack to reset backoff again
-            current_backoff = backoff.backoff_count - 1
-            self.backoff.reset_backoff()
-            for _ in range(current_backoff):
-                self.backoff.increment_backoff()
-            raise ValueError("retry_time must be in the future")
+            return
 
     def __str__(self):
         """Return a string representation of the exception."""
@@ -57,9 +62,17 @@ class PulseConnectionError(Exception):
 class PulseServerConnectionError(PulseExceptionWithBackoff, PulseConnectionError):
     """Server error."""
 
+    def __init__(self, message: str, backoff: PulseBackoff):
+        """Initialize Pulse server error exception."""
+        super().__init__(f"Pulse server error: {message}", backoff)
+
 
 class PulseClientConnectionError(PulseExceptionWithBackoff, PulseConnectionError):
     """Client error."""
+
+    def __init__(self, message: str, backoff: PulseBackoff):
+        """Initialize Pulse client error exception."""
+        super().__init__(f"Client error connecting to Pulse: {message}", backoff)
 
 
 class PulseServiceTemporarilyUnavailableError(
@@ -69,6 +82,14 @@ class PulseServiceTemporarilyUnavailableError(
 
     For HTTP 503 and 429 errors.
     """
+
+    def __init__(self, backoff: PulseBackoff, retry_time: float | None = None):
+        """Initialize Pusle service temporarily unavailable error exception."""
+        super().__init__(
+            f"Pulse service temporarily unavailable until {compute_retry_time(retry_time)}",
+            backoff,
+            retry_time,
+        )
 
 
 class PulseLoginException(Exception):
@@ -80,17 +101,35 @@ class PulseLoginException(Exception):
 class PulseAuthenticationError(PulseExceptionWithBackoff, PulseLoginException):
     """Authentication error."""
 
+    def __init__(self, backoff: PulseBackoff):
+        """Initialize Pulse Authentication error exception."""
+        super().__init__("Error authenticating to Pulse", backoff)
+
 
 class PulseAccountLockedError(PulseExceptionWithRetry, PulseLoginException):
     """Account locked error."""
+
+    def __init__(self, backoff: PulseBackoff, retry: float):
+        """Initialize Pulse Account locked error exception."""
+        super().__init__(
+            f"Pulse Account is locked until {compute_retry_time(retry)}", backoff, retry
+        )
 
 
 class PulseGatewayOfflineError(PulseExceptionWithBackoff):
     """Gateway offline error."""
 
+    def __init__(self, backoff: PulseBackoff):
+        """Initialize Pulse Gateway offline error exception."""
+        super().__init__("Gateway is offline", backoff)
+
 
 class PulseMFARequiredError(PulseExceptionWithBackoff, PulseLoginException):
     """MFA required error."""
+
+    def __init__(self, backoff: PulseBackoff):
+        """Initialize Pulse MFA required error exception."""
+        super().__init__("Authentication failed because MFA is required", backoff)
 
 
 class PulseNotLoggedInError(PulseExceptionWithBackoff, PulseLoginException):
@@ -98,3 +137,7 @@ class PulseNotLoggedInError(PulseExceptionWithBackoff, PulseLoginException):
 
     Used for signalling waiters.
     """
+
+    def __init__(self, backoff: PulseBackoff):
+        """Initialize Pulse Not logged in error exception."""
+        super().__init__("Not logged into Pulse", backoff)

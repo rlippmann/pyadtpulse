@@ -3,18 +3,13 @@
 # Dependencies:
 # pip install pytest-mock
 from time import time
-from unittest.mock import AsyncMock
 
 import pytest
-from aiohttp.client_exceptions import (
-    ClientConnectionError,
-    ClientConnectorError,
-    ServerConnectionError,
-    ServerDisconnectedError,
-)
+from aiohttp.client_exceptions import ClientConnectionError, ServerDisconnectedError
 from aiohttp.client_reqrep import ConnectionKey
 from yarl import URL
 
+from conftest import MOCKED_API_VERSION
 from pyadtpulse.exceptions import (
     PulseClientConnectionError,
     PulseNotLoggedInError,
@@ -143,9 +138,7 @@ class TestPulseQueryManager:
                 retry_time = time() + 1  # Set a future time for retry_time
             else:
                 retry_time += time() + 1
-            raise PulseServiceTemporarilyUnavailableError(
-                "Service Unavailable", backoff, retry_time
-            )
+            raise PulseServiceTemporarilyUnavailableError(backoff, retry_time)
 
         mocker.patch.object(
             PulseQueryManager, "async_query", side_effect=mock_async_query
@@ -160,91 +153,54 @@ class TestPulseQueryManager:
 
     # can handle HTTP 429 Too Many Requests response with the recommended fix
     @pytest.mark.asyncio
-    async def test_handle_http_429_with_fix(self, mocker):
+    async def test_handle_http_429_with_fix(
+        self, mocker, mocked_server_responses, get_mocked_url
+    ):
         # Given
         connection_status = PulseConnectionStatus()
         connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
+        url = get_mocked_url("/api/data")
         query_manager = PulseQueryManager(connection_status, connection_properties)
-        expected_response = (429, "Too Many Requests", URL("http://example.com"))
-        MAX_RETRIES = 3
-
-        async def mock_async_query(
-            uri,
-            method="GET",
-            extra_params=None,
-            extra_headers=None,
-            timeout=1,
-            requires_authentication=True,
-        ):
-            retry_time = time() + 10  # Set a future timestamp for retry_time
-            raise PulseServiceTemporarilyUnavailableError(
-                f"Task received Retry-After {expected_response[1]} due to Too Many Requests",
-                connection_status.get_backoff(),
-                retry_time,
-            )
-
-        mocker.patch.object(
-            PulseQueryManager, "async_query", side_effect=mock_async_query
-        )
-
+        expected_response = (429, "Too Many Requests", URL(url))
+        mocked_server_responses.get(url, status=expected_response[0])
         # When
         with pytest.raises(PulseServiceTemporarilyUnavailableError) as exc_info:
-            await query_manager.async_query("/api/data")
+            await query_manager.async_query("/api/data", requires_authentication=False)
 
         # Then
-        assert (
-            f"Task received Retry-After {expected_response[1]} due to Too Many Requests"
-            in str(exc_info.value)
+        assert "Pulse service temporarily unavailable until indefinitely" in str(
+            exc_info.value
         )
         assert exc_info.value.backoff == connection_status.get_backoff()
 
     # can handle ClientConnectionError with 'Connection refused' message using default parameter values
     @pytest.mark.asyncio
     async def test_handle_client_connection_error_with_default_values_fixed_fixed(
-        self, mocker
+        self, mocked_server_responses, get_mocked_url
     ):
         # Given
         connection_status = PulseConnectionStatus()
         connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
         query_manager = PulseQueryManager(connection_status, connection_properties)
         expected_error_message = "Connection refused"
-        expected_backoff = mocker.Mock()
+
         expected_response = (None, None, None, None)
 
-        async def mock_async_query(
-            uri,
-            method="GET",
-            extra_params=None,
-            extra_headers=None,
-            timeout=1,
-            requires_authentication=True,
-        ):
-            raise PulseClientConnectionError(
-                expected_error_message, backoff=PulseBackoff("Query:GET /api/data", 1)
-            )
-
-        mocker.patch.object(
-            PulseQueryManager, "async_query", side_effect=mock_async_query
-        )
-        mocker.patch.object(PulseQueryManager, "_set_retry_after")
-
         # When
-        with pytest.raises(PulseClientConnectionError) as exc_info:
-            await query_manager.async_query("/api/data")
+        with pytest.raises(PulseServerConnectionError) as exc_info:
+            await query_manager.async_query("/api/data", requires_authentication=False)
 
         # Then
         assert (
             str(exc_info.value)
-            == f"PulseClientConnectionError: {expected_error_message}"
+            == f"PulseServerConnectionError: Pulse server error: {expected_error_message}: GET {get_mocked_url('/api/data')}"
         )
-        PulseQueryManager._set_retry_after.assert_not_called()
 
     # can handle ClientConnectorError with non-TimeoutError or BrokenPipeError os_error
     @pytest.mark.asyncio
-    async def test_handle_client_connector_error_with_fix(self, mocker):
-        # Given
-        from aiohttp import ClientSession
-
+    async def test_handle_client_connector_error_with_fix(
+        self, mocked_server_responses, get_mocked_url
+    ):
         connection_status = PulseConnectionStatus()
         connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
         query_manager = PulseQueryManager(connection_status, connection_properties)
@@ -252,14 +208,8 @@ class TestPulseQueryManager:
             "Error occurred", connection_status.get_backoff()
         )
         ck = ConnectionKey("portal.adtpulse.com", 443, True, None, None, None, None)
-
-        async def mock_request(*args, **kwargs):
-            raise ClientConnectorError(
-                connection_key=ck, os_error=FileNotFoundError("File not found")
-            )
-
-        mocker.patch.object(ClientSession, "request", side_effect=mock_request)
-
+        url = get_mocked_url("/api/data")
+        mocked_server_responses.get(url, exception=expected_error)
         # When, Then
         with pytest.raises(PulseServerConnectionError) as ex:
             await query_manager.async_query("/api/data", requires_authentication=False)
@@ -268,82 +218,29 @@ class TestPulseQueryManager:
     # can handle Retry-After header in HTTP response
     @pytest.mark.timeout(70)
     @pytest.mark.asyncio
-    async def test_handle_retry_after_header(self, mocker):
+    async def test_handle_retry_after_header(
+        self, mocked_server_responses, get_mocked_url, freeze_time_to_now
+    ):
         # Given
         connection_status = PulseConnectionStatus()
         connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
         query_manager = PulseQueryManager(connection_status, connection_properties)
-        expected_response = (429, "Too Many Requests", URL("http://example.com"))
+        url = get_mocked_url("/api/data")
+        expected_response = (429, "Too Many Requests", URL(url))
         expected_retry_after = "60"
-
-        async def mock_async_query(
-            uri,
-            method="GET",
-            extra_params=None,
-            extra_headers=None,
-            timeout=1,
-            requires_authentication=True,
-        ):
-            raise PulseServiceTemporarilyUnavailableError(
-                "Task <current_task()> received Retry-After <retval> due to <description>",
-                connection_status.get_backoff(),
-                float(expected_retry_after) + time(),
-            )
-
-        mocker.patch.object(
-            PulseQueryManager, "async_query", side_effect=mock_async_query
+        mocked_server_responses.get(
+            url,
+            status=expected_response[0],
+            headers={"Retry-After": expected_retry_after},
         )
 
         # When
         with pytest.raises(PulseServiceTemporarilyUnavailableError) as exc_info:
-            await query_manager.async_query("/api/data")
+            await query_manager.async_query("/api/data", requires_authentication=False)
 
         # Then
         assert exc_info.value.backoff == connection_status.get_backoff()
-
-        assert connection_status._backoff.wait_for_backoff.call_count == 1
-        assert connection_status.authenticated_flag.wait.call_count == 0
-        assert connection_properties.session.request.call_count == 1
-        assert connection_properties.session.request.call_args[0][0] == "GET"
-        assert connection_properties.session.request.call_args[0][
-            1
-        ] == connection_properties.make_url("/api/data")
-        assert connection_properties.session.request.call_args[1]["headers"] == {}
-        assert connection_properties.session.request.call_args[1]["params"] is None
-        assert connection_properties.session.request.call_args[1]["data"] is None
-        assert connection_properties.session.request.call_args[1]["timeout"] == 1
-
-        assert connection_status.get_backoff().reset_backoff.call_count == 1
-
-    # can handle ServerConnectionError with default values
-    @pytest.mark.asyncio
-    async def test_handle_server_connection_error_with_default_values(self, mocker):
-        # Given
-        connection_status = PulseConnectionStatus()
-        connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
-        query_manager = PulseQueryManager(connection_status, connection_properties)
-        expected_error = PulseServerConnectionError(
-            "Server connection error", query_manager._connection_status.get_backoff()
-        )
-
-        async def mock_async_query(
-            uri,
-            method="GET",
-            extra_params=None,
-            extra_headers=None,
-            timeout=1,
-            requires_authentication=True,
-        ):
-            raise ServerConnectionError("Server connection error")
-
-        mocker.patch.object(
-            PulseQueryManager, "async_query", side_effect=mock_async_query
-        )
-
-        # When, Then
-        with pytest.raises(PulseServerConnectionError) as e:
-            await query_manager.async_query("/api/data")
-        assert str(e.value) == str(expected_error)
+        assert exc_info.value.retry_time == int(expected_retry_after) + int(time())
 
     # can handle ServerTimeoutError
     @pytest.mark.asyncio
@@ -378,70 +275,6 @@ class TestPulseQueryManager:
                 requires_authentication=True,
             )
 
-    # can handle ClientConnectionError with 'timed out' message
-    @pytest.mark.asyncio
-    async def test_handle_client_connection_error_with_timed_out_message(self, mocker):
-        # Given
-        connection_status = PulseConnectionStatus()
-        connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
-        query_manager = PulseQueryManager(connection_status, connection_properties)
-        expected_error_message = "Connection refused"
-        expected_backoff = PulseBackoff(
-            "Query:GET /api/data",
-            1,
-            threshold=0,
-            debug_locks=False,
-            detailed_debug_logging=False,
-        )
-
-        async def mock_async_query(
-            uri, method, extra_params, extra_headers, timeout, requires_authentication
-        ):
-            raise ClientConnectionError(expected_error_message)
-
-        mocker.patch.object(
-            PulseQueryManager, "async_query", side_effect=mock_async_query
-        )
-        mocker.patch.object(PulseQueryManager, "_handle_network_errors")
-
-        # When
-        await query_manager.async_query(
-            "/api/data",
-            method="GET",
-            extra_params=None,
-            extra_headers=None,
-            timeout=1,
-            requires_authentication=True,
-        )
-
-        # Then
-        assert query_manager._handle_network_errors.call_count == 1
-        assert query_manager._handle_network_errors.call_args == mocker.call(
-            ClientConnectionError(expected_error_message),
-        )
-
-        assert (
-            query_manager._connection_status.get_backoff().wait_for_backoff.call_count
-            == 1
-        )
-        assert (
-            query_manager._connection_status.get_backoff().wait_for_backoff.call_args
-            == mocker.call()
-        )
-
-        assert (
-            query_manager._connection_status.get_backoff().increment_backoff.call_count
-            == 1
-        )
-        assert (
-            query_manager._connection_status.get_backoff().increment_backoff.call_args
-            == mocker.call()
-        )
-
-        assert (
-            query_manager._connection_status.get_backoff().reset_backoff.call_count == 0
-        )
-
     # can handle missing API version
     @pytest.mark.asyncio
     async def test_handle_missing_api_version(self, mocker):
@@ -468,86 +301,42 @@ class TestPulseQueryManager:
 
     # can handle valid method parameter
     @pytest.mark.asyncio
-    async def test_valid_method_parameter(self, mocker):
+    async def test_valid_method_parameter(
+        self, mocked_server_responses, get_mocked_url, mocker
+    ):
         # Given
         connection_status = PulseConnectionStatus()
         connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
         query_manager = PulseQueryManager(connection_status, connection_properties)
-        expected_response = (200, "Response", URL("http://example.com"))
+        expected_response = (200, "Response", URL(get_mocked_url("/api/data")))
 
-        async def mock_async_query(
-            uri,
-            method="GET",
-            extra_params=None,
-            extra_headers=None,
-            timeout=1,
-            requires_authentication=True,
-        ):
-            return expected_response
-
-        mocker.patch.object(
-            PulseQueryManager, "async_query", side_effect=mock_async_query
+        mocked_server_responses.get(
+            get_mocked_url("/api/data"), status=200, body="Response"
         )
-        mocker.patch.object(
-            query_manager._connection_status.get_backoff(),
-            "wait_for_backoff",
-            new_callable=AsyncMock,
-        )
-
         # When
-        result = await query_manager.async_query("/api/data")
+        result = await query_manager.async_query(
+            "/api/data", requires_authentication=False
+        )
 
         # Then
         assert result == expected_response
-        assert (
-            query_manager._connection_status.get_backoff().wait_for_backoff.call_count
-            == 0
-        )
-        assert query_manager._connection_properties.api_version is None
-        assert query_manager._connection_status.authenticated_flag.wait.call_count == 0
-        assert query_manager._connection_properties.session.request.call_count == 0
-        assert query_manager._handle_http_errors.call_count == 0
-        assert query_manager._handle_network_errors.call_count == 0
-        assert (
-            query_manager._connection_status.get_backoff().reset_backoff.call_count == 0
-        )
+
+        assert query_manager._connection_properties.api_version == MOCKED_API_VERSION
 
     # can handle ClientResponseError and include backoff in the raised exception
     @pytest.mark.asyncio
-    async def test_handle_client_response_error_with_backoff(self, mocker):
+    async def test_handle_client_response_error_with_backoff(
+        self, mocked_server_responses, get_mocked_url
+    ):
         # Given
         connection_status = PulseConnectionStatus()
         connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
         query_manager = PulseQueryManager(connection_status, connection_properties)
         expected_response = (429, "Too Many Requests", URL("http://example.com"))
-
-        async def mock_async_query(
-            uri,
-            method="GET",
-            extra_params=None,
-            extra_headers=None,
-            timeout=1,
-            requires_authentication=True,
-        ):
-            raise PulseServerConnectionError(
-                f"HTTP error {expected_response[0]}: {expected_response[1]} connecting to {expected_response[2]}",
-                connection_status.get_backoff(),
-            )
-
-        mocker.patch.object(
-            PulseQueryManager, "async_query", side_effect=mock_async_query
-        )
-
+        mocked_server_responses.get(get_mocked_url("/api/data"), status=429)
         # When
-        with pytest.raises(PulseServerConnectionError) as exc_info:
-            await query_manager.async_query("/api/data")
-
-        # Then
-        assert (
-            str(exc_info.value)
-            == f"PulseServerConnectionError: HTTP error {expected_response[0]}: {expected_response[1]} connecting to {expected_response[2]}"
-        )
-        assert exc_info.value.backoff == connection_status.get_backoff()
+        with pytest.raises(PulseServiceTemporarilyUnavailableError) as exc_info:
+            await query_manager.async_query("/api/data", requires_authentication=False)
 
     # can handle invalid Retry-After header value format
     @pytest.mark.asyncio
@@ -652,60 +441,37 @@ class TestPulseQueryManager:
 
     # can handle PulseClientConnectionError
     @pytest.mark.asyncio
-    async def test_handle_pulse_client_connection_error(self, mocker):
+    async def test_handle_pulse_client_connection_error(
+        self, mocked_server_responses, get_mocked_url
+    ):
         # Given
         connection_status = PulseConnectionStatus()
         connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
         query_manager = PulseQueryManager(connection_status, connection_properties)
-        expected_response = (0, None, None, None)
-
-        async def mock_async_query(
-            uri,
-            method="GET",
-            extra_params=None,
-            extra_headers=None,
-            timeout=1,
-            requires_authentication=True,
-        ):
-            raise PulseClientConnectionError(
-                "Client connection error", connection_status.get_backoff()
-            )
-
-        mocker.patch.object(
-            PulseQueryManager, "async_query", side_effect=mock_async_query
+        mocked_server_responses.get(
+            get_mocked_url("/api/data"),
+            exception=ClientConnectionError("Network error"),
+            repeat=True,
         )
         # When
         with pytest.raises(PulseClientConnectionError):
-            await query_manager.async_query("/api/data")
-
-        # Then
-        assert query_manager._handle_pulse_client_connection_error.call_count == 0
+            await query_manager.async_query("/api/data", requires_authentication=False)
 
     # can handle ServerDisconnectedError
     @pytest.mark.asyncio
-    async def test_handle_server_disconnected_error(self, mocker):
+    async def test_handle_server_disconnected_error(
+        self, mocked_server_responses, get_mocked_url
+    ):
         # Given
         connection_status = PulseConnectionStatus()
         connection_properties = PulseConnectionProperties("https://portal.adtpulse.com")
         query_manager = PulseQueryManager(connection_status, connection_properties)
-
-        async def mock_async_query(
-            uri,
-            method="GET",
-            extra_params=None,
-            extra_headers=None,
-            timeout=1,
-            requires_authentication=True,
-        ):
-            raise ServerDisconnectedError()
-
-        mocker.patch.object(
-            PulseQueryManager, "async_query", side_effect=mock_async_query
+        mocked_server_responses.get(
+            get_mocked_url("/api/data"), exception=ServerDisconnectedError
         )
-
         # When
         with pytest.raises(PulseServerConnectionError):
-            await query_manager.async_query("/api/data")
+            await query_manager.async_query("/api/data", requires_authentication=False)
 
     # can handle PulseNotLoggedInError
     @pytest.mark.asyncio
@@ -731,7 +497,7 @@ class TestPulseQueryManager:
                 debug_locks=query_manager._debug_locks,
                 detailed_debug_logging=connection_properties.detailed_debug_logging,
             )
-            raise PulseNotLoggedInError("Not logged in", backoff)
+            raise PulseNotLoggedInError(backoff)
 
         mocker.patch.object(
             PulseQueryManager, "async_query", side_effect=mock_async_query
