@@ -497,7 +497,7 @@ class TestPulseQueryManager:
                 debug_locks=query_manager._debug_locks,
                 detailed_debug_logging=connection_properties.detailed_debug_logging,
             )
-            raise PulseNotLoggedInError(backoff)
+            raise PulseNotLoggedInError()
 
         mocker.patch.object(
             PulseQueryManager, "async_query", side_effect=mock_async_query

@@ -132,14 +132,14 @@ class PulseConnection(PulseQueryManager):
                                 retry_after + time(),
                             )
                     elif "You have not yet signed in" in error_text:
-                        raise PulseNotLoggedInError(self._login_backoff)
+                        raise PulseNotLoggedInError()
                     else:
                         # FIXME: not sure if this is true
-                        raise PulseAuthenticationError(self._login_backoff)
+                        raise PulseAuthenticationError()
             else:
                 url = self._connection_properties.make_url(ADT_MFA_FAIL_URI)
                 if url == response_url_string:
-                    raise PulseMFARequiredError(self._login_backoff)
+                    raise PulseMFARequiredError()
 
         soup = make_soup(
             response[0],
@@ -158,7 +158,7 @@ class PulseConnection(PulseQueryManager):
         response_url_string = str(response[2])
         if url != response_url_string:
             determine_error_type()
-            raise PulseAuthenticationError(self._login_backoff)
+            raise PulseAuthenticationError()
         return soup
 
     @typechecked

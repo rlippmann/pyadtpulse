@@ -98,12 +98,12 @@ class PulseLoginException(Exception):
     Base class for catching all login exceptions."""
 
 
-class PulseAuthenticationError(PulseExceptionWithBackoff, PulseLoginException):
+class PulseAuthenticationError(PulseLoginException):
     """Authentication error."""
 
-    def __init__(self, backoff: PulseBackoff):
+    def __init__(self):
         """Initialize Pulse Authentication error exception."""
-        super().__init__("Error authenticating to Pulse", backoff)
+        super().__init__("Error authenticating to Pulse")
 
 
 class PulseAccountLockedError(PulseExceptionWithRetry, PulseLoginException):
@@ -124,20 +124,20 @@ class PulseGatewayOfflineError(PulseExceptionWithBackoff):
         super().__init__("Gateway is offline", backoff)
 
 
-class PulseMFARequiredError(PulseExceptionWithBackoff, PulseLoginException):
+class PulseMFARequiredError(PulseLoginException):
     """MFA required error."""
 
-    def __init__(self, backoff: PulseBackoff):
+    def __init__(self):
         """Initialize Pulse MFA required error exception."""
-        super().__init__("Authentication failed because MFA is required", backoff)
+        super().__init__("Authentication failed because MFA is required")
 
 
-class PulseNotLoggedInError(PulseExceptionWithBackoff, PulseLoginException):
+class PulseNotLoggedInError(PulseLoginException):
     """Exception to indicate that the application code is not logged in.
 
     Used for signalling waiters.
     """
 
-    def __init__(self, backoff: PulseBackoff):
+    def __init__(self):
         """Initialize Pulse Not logged in error exception."""
-        super().__init__("Not logged into Pulse", backoff)
+        super().__init__("Not logged into Pulse")

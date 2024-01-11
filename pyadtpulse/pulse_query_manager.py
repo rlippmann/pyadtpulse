@@ -284,9 +284,7 @@ class PulseQueryManager:
                             method,
                             uri,
                         )
-                        raise PulseNotLoggedInError(
-                            self._connection_status.get_backoff(),
-                        ) from ex
+                        raise PulseNotLoggedInError() from ex
                 async with self._connection_properties.session.request(
                     method,
                     url,

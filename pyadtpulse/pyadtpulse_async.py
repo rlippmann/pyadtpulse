@@ -127,7 +127,7 @@ class PyADTPulseAsync:
         self._site: ADTPulseSite | None = None
         self._detailed_debug_logging = detailed_debug_logging
         pc_backoff = self._pulse_connection.get_login_backoff()
-        self._sync_check_exception: Exception | None = PulseNotLoggedInError(pc_backoff)
+        self._sync_check_exception: Exception | None = PulseNotLoggedInError()
         pc_backoff.reset_backoff()
 
     def __repr__(self) -> str:
@@ -581,9 +581,7 @@ class PyADTPulseAsync:
         LOG.info(
             "Logging %s out of ADT Pulse", self._authentication_properties.username
         )
-        self._set_sync_check_exception(
-            PulseNotLoggedInError(self._pulse_connection.get_login_backoff())
-        )
+        self._set_sync_check_exception(PulseNotLoggedInError())
         if asyncio.current_task() not in (self._sync_task, self._timeout_task):
             await self._cancel_task(self._timeout_task)
             await self._cancel_task(self._sync_task)

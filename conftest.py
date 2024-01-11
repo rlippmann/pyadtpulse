@@ -245,7 +245,6 @@ def mocked_server_responses(
 
 def add_custom_response(
     mocked_server_responses,
-    get_mocked_url,
     read_file,
     url: str,
     method: str = "GET",
@@ -257,7 +256,7 @@ def add_custom_response(
         raise ValueError("Unsupported HTTP method. Only GET and POST are supported.")
 
     mocked_server_responses.add(
-        get_mocked_url(url),
+        url,
         method,
         status=status,
         body=read_file(file_name) if file_name else "",
@@ -269,14 +268,12 @@ def add_custom_response(
 def add_signin(
     signin_type: LoginType, mocked_server_responses, get_mocked_url, read_file
 ):
-    if signin_type != LoginType.SUCCESS and signin_type != LoginType.MFA:
-        add_custom_response(
-            mocked_server_responses,
-            get_mocked_url,
-            read_file,
-            ADT_LOGIN_URI,
-            file_name=signin_type.value,
-        )
+    add_custom_response(
+        mocked_server_responses,
+        read_file,
+        get_mocked_url(ADT_LOGIN_URI),
+        file_name=signin_type.value,
+    )
     redirect = get_mocked_url(ADT_LOGIN_URI)
     if signin_type == LoginType.MFA:
         redirect = get_mocked_url(ADT_MFA_FAIL_URI)
@@ -284,9 +281,8 @@ def add_signin(
         redirect = get_mocked_url(ADT_SUMMARY_URI)
     add_custom_response(
         mocked_server_responses,
-        get_mocked_url,
         read_file,
-        ADT_LOGIN_URI,
+        get_mocked_url(ADT_LOGIN_URI),
         status=307,
         method="POST",
         headers={"Location": redirect},
