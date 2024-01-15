@@ -107,28 +107,26 @@ class PyADTPulse(PyADTPulseAsync):
         the `asyncio.sleep` function. This wait allows the logout process to complete
         before continuing with the synchronization logic.
         """
-        result = False
         try:
-            result = await self.async_login()
+            await self.async_login()
         except Exception as e:
             self._login_exception = e
         self._p_attribute_lock.release()
         if self._login_exception is not None:
             return
-        if result:
-            if self._timeout_task is not None:
-                task_list = (self._timeout_task,)
-                try:
-                    await asyncio.wait(task_list)
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:  # pylint: disable=broad-except
-                    LOG.exception(
-                        "Received exception while waiting for ADT Pulse service %s", e
-                    )
-            else:
-                # we should never get here
-                raise RuntimeError("Background pyadtpulse tasks not created")
+        if self._timeout_task is not None:
+            task_list = (self._timeout_task,)
+            try:
+                await asyncio.wait(task_list)
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:  # pylint: disable=broad-except
+                LOG.exception(
+                    "Received exception while waiting for ADT Pulse service %s", e
+                )
+        else:
+            # we should never get here
+            raise RuntimeError("Background pyadtpulse tasks not created")
         while self._pulse_connection_status.authenticated_flag.is_set():
             # busy wait until logout is done
             await asyncio.sleep(0.5)
@@ -229,11 +227,11 @@ class PyADTPulse(PyADTPulseAsync):
             ),
         ).result()
 
-    async def async_login(self) -> bool:
+    async def async_login(self) -> None:
         self._pulse_connection_properties.check_async(
             "Cannot login asynchronously with a synchronous session"
         )
-        return await super().async_login()
+        await super().async_login()
 
     async def async_logout(self) -> None:
         self._pulse_connection_properties.check_async(

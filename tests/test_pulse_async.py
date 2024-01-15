@@ -165,7 +165,7 @@ async def test_login(
     assert p._pulse_connection_status.get_backoff().backoff_count == 0
     assert p._pulse_connection.login_in_progress is False
     assert p._pulse_connection.login_backoff.backoff_count == 0
-    add_logout(response, read_file, get_mocked_url(ADT_LOGOUT_URI))
+    add_logout(response, get_mocked_url, read_file)
     add_custom_response(
         response,
         read_file,
@@ -455,3 +455,25 @@ async def test_sync_check_errors(adt_pulse_instance, get_mocked_url, read_file, 
         add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
         if test_type[0] != LoginType.LOCKED:
             await p.async_login()
+
+
+@pytest.mark.asyncio
+async def test_multiple_login(
+    adt_pulse_instance, extract_ids_from_data_directory, get_mocked_url, read_file
+):
+    p, response = await adt_pulse_instance
+    add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
+    await p.async_login()
+    assert p.site.zones_as_dict is not None
+    assert len(p.site.zones_as_dict) == len(extract_ids_from_data_directory) - 3
+    add_logout(response, get_mocked_url, read_file)
+    await p.async_logout()
+    assert p.site.zones_as_dict is not None
+    assert len(p.site.zones_as_dict) == len(extract_ids_from_data_directory) - 3
+    add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
+    await p.async_login()
+    assert p.site.zones_as_dict is not None
+    assert len(p.site.zones_as_dict) == len(extract_ids_from_data_directory) - 3
+    add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
+    assert p.site.zones_as_dict is not None
+    assert len(p.site.zones_as_dict) == len(extract_ids_from_data_directory) - 3

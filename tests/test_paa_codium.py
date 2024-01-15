@@ -49,7 +49,7 @@ class TestPyADTPulseAsync:
         add_signin(
             LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file
         )
-        assert await pulse.async_login() is True
+        await pulse.async_login()
 
     # The class is instantiated without the required parameters (username, password, fingerprint) and raises an exception.
     @pytest.mark.asyncio

@@ -224,8 +224,10 @@ class PyADTPulseAsync:
             < WARN_UPDATE_TASK_THRESHOLD
         ):
             return
+        old_exception = self.sync_check_exception
         self.sync_check_exception = e
-        self._pulse_properties.updates_exist.set()
+        if old_exception != e:
+            self._pulse_properties.updates_exist.set()
 
     async def _keepalive_task(self) -> None:
         """
@@ -353,7 +355,7 @@ class PyADTPulseAsync:
                 log_level = logging.WARNING
             LOG.log(log_level, "%s performming loop login", task_name)
             try:
-                login_successful = await self.async_login()
+                await self.async_login()
             except (
                 PulseClientConnectionError,
                 PulseServerConnectionError,
@@ -531,10 +533,10 @@ class PyADTPulseAsync:
                 LOG.debug("%s cancelled", task_name)
                 return
 
-    async def async_login(self) -> bool:
+    async def async_login(self) -> None:
         """Login asynchronously to ADT.
 
-        Returns: True if login successful
+        Returns: None
 
         Raises:
             PulseClientConnectionError: if client connection fails
@@ -543,10 +545,11 @@ class PyADTPulseAsync:
             PulseAuthenticationError: if authentication fails
             PulseAccountLockedError: if account is locked
             PulseMFARequiredError: if MFA is required
+            PulseNotLoggedInError: if login fails
         """
         if self._pulse_connection.login_in_progress:
             LOG.debug("Login already in progress, returning")
-            return True
+            return
         LOG.debug(
             "Authenticating to ADT Pulse cloud service as %s",
             self._authentication_properties.username,
@@ -554,24 +557,25 @@ class PyADTPulseAsync:
         await self._pulse_connection.async_fetch_version()
         soup = await self._pulse_connection.async_do_login_query()
         if soup is None:
-            return False
+            await self._pulse_connection.quick_logout()
+            raise PulseNotLoggedInError()
         self._set_sync_check_exception(None)
         # if tasks are started, we've already logged in before
         # clean up completed tasks first
         await self._clean_done_tasks()
         if self._timeout_task is not None:
-            return True
-        await self._update_sites(soup)
+            return
+        if not self._site:
+            await self._update_sites(soup)
         if self._site is None:
             LOG.error("Could not retrieve any sites, login failed")
             await self._pulse_connection.quick_logout()
-            return False
+            raise PulseNotLoggedInError()
         self.sync_check_exception = None
         self._timeout_task = asyncio.create_task(
             self._keepalive_task(), name=KEEPALIVE_TASK_NAME
         )
         await asyncio.sleep(0)
-        return True
 
     async def async_logout(self) -> None:
         """Logout of ADT Pulse async."""
