@@ -133,9 +133,10 @@ class PulseConnection(PulseQueryManager):
                             )
                     elif "You have not yet signed in" in error_text:
                         raise PulseNotLoggedInError()
-                    else:
-                        # FIXME: not sure if this is true
+                    elif "Sign In Unsuccessful" in error_text:
                         raise PulseAuthenticationError()
+                else:
+                    raise PulseNotLoggedInError()
             else:
                 url = self._connection_properties.make_url(ADT_MFA_FAIL_URI)
                 if url == response_url_string:

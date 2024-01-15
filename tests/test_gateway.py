@@ -134,13 +134,13 @@ def test_default_values2():
     gateway = ADTPulseGateway()
     assert gateway.manufacturer == "Unknown"
     assert gateway._status_text == "OFFLINE"
-    assert gateway.backoff._name == "Gateway"
-    assert gateway.backoff._initial_backoff_interval == ADT_DEFAULT_POLL_INTERVAL
+    assert gateway.backoff.name == "Gateway"
+    assert gateway.backoff.initial_backoff_interval == ADT_DEFAULT_POLL_INTERVAL
     assert (
         gateway.backoff._max_backoff_interval == ADT_GATEWAY_MAX_OFFLINE_POLL_INTERVAL
     )
-    assert gateway.backoff._backoff_count == 0
-    assert gateway.backoff._expiration_time == 0.0
+    assert gateway.backoff.backoff_count == 0
+    assert gateway.backoff.expiration_time == 0.0
     assert gateway.backoff._detailed_debug_logging == False
     assert gateway.backoff._threshold == 0
     assert gateway.model == None

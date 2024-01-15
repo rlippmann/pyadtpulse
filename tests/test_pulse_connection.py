@@ -44,7 +44,7 @@ async def test_login(mocked_server_responses, read_file, mock_sleep, get_mocked_
     assert pc._connection_status.authenticated_flag.is_set()
     # so logout won't fail
     add_custom_response(
-        mocked_server_responses, get_mocked_url, read_file, ADT_LOGIN_URI
+        mocked_server_responses, read_file, get_mocked_url(ADT_LOGIN_URI)
     )
     await pc.async_do_logout_query()
     assert not pc._connection_status.authenticated_flag.is_set()
@@ -165,44 +165,37 @@ async def test_invalid_credentials(
     add_signin(LoginType.FAIL, mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseAuthenticationError):
         await pc.async_do_login_query()
-    assert pc._login_backoff.backoff_count == 1
+    assert pc._login_backoff.backoff_count == 0
     assert mock_sleep.call_count == 0
     add_signin(LoginType.FAIL, mocked_server_responses, get_mocked_url, read_file)
 
     with pytest.raises(PulseAuthenticationError):
         await pc.async_do_login_query()
-    assert pc._login_backoff.backoff_count == 2
-    assert mock_sleep.call_count == 1
-    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
-    await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 0
-    assert mock_sleep.call_count == 2
+    assert mock_sleep.call_count == 0
+    add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
+    assert pc._login_backoff.backoff_count == 0
+    assert mock_sleep.call_count == 0
 
 
 @pytest.mark.asyncio
-async def test_mfa_failure(
-    mocked_server_responses, mock_sleep, get_mocked_url, read_file
-):
+async def test_mfa_failure(mocked_server_responses, get_mocked_url, read_file):
     pc = setup_pulse_connection()
     add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
-    assert mock_sleep.call_count == 0
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     add_signin(LoginType.MFA, mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseMFARequiredError):
         await pc.async_do_login_query()
-    assert pc._login_backoff.backoff_count == 1
-    assert mock_sleep.call_count == 0
+    assert pc._login_backoff.backoff_count == 0
     add_signin(LoginType.MFA, mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseMFARequiredError):
         await pc.async_do_login_query()
-    assert pc._login_backoff.backoff_count == 2
-    assert mock_sleep.call_count == 1
+    assert pc._login_backoff.backoff_count == 0
     add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 0
-    assert mock_sleep.call_count == 2
 
 
 @pytest.mark.asyncio

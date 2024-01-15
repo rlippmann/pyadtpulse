@@ -7,7 +7,12 @@ from time import time
 import pytest
 
 from pyadtpulse.alarm_panel import ADTPulseAlarmPanel
+from pyadtpulse.const import DEFAULT_API_HOST
 from pyadtpulse.gateway import ADTPulseGateway
+from pyadtpulse.pulse_authentication_properties import PulseAuthenticationProperties
+from pyadtpulse.pulse_connection import PulseConnection
+from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
+from pyadtpulse.pulse_connection_status import PulseConnectionStatus
 from pyadtpulse.site_properties import ADTPulseSiteProperties
 from pyadtpulse.zones import ADTPulseFlattendZone, ADTPulseZoneData, ADTPulseZones
 
@@ -180,18 +185,23 @@ class TestADTPulseSiteProperties:
         assert result == False
 
     # Cannot set alarm status from one state to another
-    def test_cannot_set_alarm_status(self, mocker):
-        import asyncio
-
+    @pytest.mark.asyncio
+    async def test_cannot_set_alarm_status(self, mocker):
         # Arrange
         site_id = "12345"
         site_name = "My ADT Pulse Site"
         site_properties = ADTPulseSiteProperties(site_id, site_name)
-        mocker.patch.object(site_properties._alarm_panel, "_status", "Armed Away")
+        cp = PulseConnectionProperties(DEFAULT_API_HOST)
+        cs = PulseConnectionStatus()
+        pa = PulseAuthenticationProperties(
+            "test@example.com", "testpassword", "testfingerprint"
+        )
+
+        connection = PulseConnection(cs, cp, pa)
 
         # Act
-        result = asyncio.run(
-            site_properties._alarm_panel._arm(None, "Armed Home", False)
+        result = await site_properties._alarm_panel._arm(
+            connection, "Armed Home", False
         )
 
         # Assert

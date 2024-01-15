@@ -268,12 +268,13 @@ def add_custom_response(
 def add_signin(
     signin_type: LoginType, mocked_server_responses, get_mocked_url, read_file
 ):
-    add_custom_response(
-        mocked_server_responses,
-        read_file,
-        get_mocked_url(ADT_LOGIN_URI),
-        file_name=signin_type.value,
-    )
+    if signin_type != LoginType.SUCCESS:
+        add_custom_response(
+            mocked_server_responses,
+            read_file,
+            get_mocked_url(ADT_LOGIN_URI),
+            file_name=signin_type.value,
+        )
     redirect = get_mocked_url(ADT_LOGIN_URI)
     if signin_type == LoginType.MFA:
         redirect = get_mocked_url(ADT_MFA_FAIL_URI)
@@ -286,6 +287,15 @@ def add_signin(
         status=307,
         method="POST",
         headers={"Location": redirect},
+    )
+
+
+def add_logout(mocked_server_responses, get_mocked_url, read_file):
+    add_custom_response(
+        mocked_server_responses,
+        read_file,
+        get_mocked_url(ADT_LOGOUT_URI),
+        file_name=LoginType.SUCCESS.value,
     )
 
 
