@@ -22,6 +22,15 @@ ADT_ALARM_UNKNOWN = "unknown"
 ADT_ALARM_ARMING = "arming"
 ADT_ALARM_DISARMING = "disarming"
 
+ALARM_STATUSES = (
+    ADT_ALARM_AWAY,
+    ADT_ALARM_HOME,
+    ADT_ALARM_OFF,
+    ADT_ALARM_UNKNOWN,
+    ADT_ALARM_ARMING,
+    ADT_ALARM_DISARMING,
+)
+
 ADT_ARM_DISARM_TIMEOUT: float = 20
 
 
@@ -47,6 +56,18 @@ class ADTPulseAlarmPanel:
         """
         with self._state_lock:
             return self._status
+
+    @status.setter
+    def status(self, new_status: str) -> None:
+        """Set alarm status.
+
+        Args:
+            new_status (str): the new alarm status
+        """
+        with self._state_lock:
+            if new_status not in ALARM_STATUSES:
+                raise ValueError(f"Alarm status must be one of {ALARM_STATUSES}")
+            self._status = new_status
 
     @property
     def is_away(self) -> bool:

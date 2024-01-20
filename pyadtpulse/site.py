@@ -311,10 +311,23 @@ class ADTPulseSite(ADTPulseSiteProperties):
         Raises:
             PulseGatewayOffline: If the gateway is offline.
         """
+
         # parse ADT's convulated html to get sensor status
         with self._site_lock:
-            gateway_online = False
-            for row in soup.find_all("tr", {"class": "p_listRow"}):
+            orb_status = soup.find("canvas", {"id": "ic_orb"})
+            if orb_status:
+                alarm_status = orb_status.get("orb")[0]
+                if not alarm_status:
+                    LOG.error("Failed to retrieve alarm status from orb!")
+                elif alarm_status == "offline":
+                    self.gateway.is_online = False
+                    raise PulseGatewayOfflineError(self.gateway.backoff)
+                else:
+                    self.gateway.is_online = True
+                    self.gateway.backoff.reset_backoff()
+
+            sensors = soup.find("div", {"id": "orbSensorsList"})
+            for row in sensors.find_all("tr", {"class": "p_listRow"}):
                 temp = row.find("div", {"class": "p_grayNormalText"})
                 # v26 and lower: temp = row.find("span", {"class": "p_grayNormalText"})
                 if temp is None:
@@ -381,8 +394,6 @@ class ADTPulseSite(ADTPulseSiteProperties):
                 if not self._zones:
                     LOG.warning("No zones exist")
                     return None
-                if state != "Unknown":
-                    gateway_online = True
                 self._zones.update_device_info(zone, state, status, last_update)
                 LOG.debug(
                     "Set zone %d - to %s, status %s with timestamp %s",
@@ -391,15 +402,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
                     status,
                     last_update,
                 )
-            self._gateway.is_online = gateway_online
             self._last_updated = int(time())
-            if not gateway_online:
-                LOG.warning("Gateway is offline")
-                raise PulseGatewayOfflineError(
-                    "Gateway is offline", self._gateway.backoff
-                )
-            else:
-                self._gateway.backoff.reset_backoff()
 
     async def _async_update_zones(self) -> list[ADTPulseFlattendZone] | None:
         """Update zones asynchronously.

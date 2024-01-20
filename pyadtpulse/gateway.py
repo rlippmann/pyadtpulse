@@ -100,7 +100,7 @@ class ADTPulseGateway:
 
     @property
     def poll_interval(self) -> float:
-        """Get current poll interval."""
+        """Get initial poll interval."""
         with self._attribute_lock:
             return self.backoff.initial_backoff_interval
 

@@ -224,10 +224,8 @@ class PyADTPulseAsync:
             < WARN_UPDATE_TASK_THRESHOLD
         ):
             return
-        old_exception = self.sync_check_exception
         self.sync_check_exception = e
-        if old_exception != e:
-            self._pulse_properties.updates_exist.set()
+        self._pulse_properties.updates_exist.set()
 
     async def _keepalive_task(self) -> None:
         """
@@ -437,14 +435,22 @@ class PyADTPulseAsync:
                 if not success:
                     LOG.debug("Pulse data update failed in task %s", task_name)
                     return False
-
+                # no updates with an offline gateway, bump backoff and signal gateway offline
                 self._set_sync_check_exception(None)
                 return True
             else:
+                additional_msg = ""
+                if not self.site.gateway.is_online:
+                    # bump backoff and resignal since offline and nothing updated
+                    self._set_sync_check_exception(
+                        PulseGatewayOfflineError(self.site.gateway.backoff)
+                    )
+                    additional_msg = ", gateway offline so backoff incremented"
                 if self._detailed_debug_logging:
                     LOG.debug(
-                        "Sync token %s indicates no remote updates to process",
+                        "Sync token %s indicates no remote updates to process %s ",
                         response_text,
+                        additional_msg,
                     )
             return False
 
@@ -496,7 +502,6 @@ class PyADTPulseAsync:
                     LOG.warning("Pulse service %s, ending %s task", status, task_name)
                     await shutdown_task(e)
                     return
-                self._set_sync_check_exception(None)
                 if not handle_response(
                     code, url, logging.WARNING, "Error querying ADT sync"
                 ):
