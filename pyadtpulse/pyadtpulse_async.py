@@ -347,9 +347,8 @@ class PyADTPulseAsync:
         """
         count = 0
         log_level = logging.DEBUG
-        login_successful = False
 
-        while not login_successful:
+        while True:
             count += 1
             if count > 5:
                 log_level = logging.WARNING
@@ -372,10 +371,9 @@ class PyADTPulseAsync:
                     or self._sync_check_exception != ex
                 ):
                     self._set_sync_check_exception(ex)
-                login_successful = False
                 continue
-            if login_successful:
-                return
+            # success, return
+            return
 
     async def _sync_check_task(self) -> None:
         """Asynchronous function that performs a synchronization check task."""
@@ -635,8 +633,10 @@ class PyADTPulseAsync:
 
         await self._pulse_properties.updates_exist.wait()
         self._pulse_properties.updates_exist.clear()
-        if self.sync_check_exception:
-            raise self.sync_check_exception
+        curr_exception = self.sync_check_exception
+        self.sync_check_exception = None
+        if curr_exception:
+            raise curr_exception
 
     @property
     def sites(self) -> list[ADTPulseSite]:
