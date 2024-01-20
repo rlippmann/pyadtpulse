@@ -326,8 +326,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
                     self.gateway.is_online = True
                     self.gateway.backoff.reset_backoff()
 
-            sensors = soup.find("div", {"id": "orbSensorsList"})
-            for row in sensors.find_all("tr", {"class": "p_listRow"}):
+            for row in soup.find_all("tr", {"class": "p_listRow"}):
                 temp = row.find("div", {"class": "p_grayNormalText"})
                 # v26 and lower: temp = row.find("span", {"class": "p_grayNormalText"})
                 if temp is None:
