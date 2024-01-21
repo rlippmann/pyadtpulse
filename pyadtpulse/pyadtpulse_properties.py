@@ -89,12 +89,12 @@ class PyADTPulseProperties:
         """Set re-login interval.
 
         Args:
-            interval (int): The number of minutes between logins.
+            interval (int|None): The number of minutes between logins.
                             If set to None, resets to ADT_DEFAULT_RELOGIN_INTERVAL
 
         Raises:
-            ValueError: if a relogin interval of less than 10 minutes
-                        is specified
+            ValueError: if a relogin interval of less than ADT_MIN_RELOGIN_INTERVAL
+                        minutes is specified
         """
         if interval is None:
             interval = ADT_DEFAULT_RELOGIN_INTERVAL
@@ -119,7 +119,13 @@ class PyADTPulseProperties:
     def keepalive_interval(self, interval: int | None) -> None:
         """Set the keepalive interval in minutes.
 
-        If set to None, resets to ADT_DEFAULT_KEEPALIVE_INTERVAL
+        Args:
+            interval (int|None): The number of minutes between keepalive calls
+                                 If set to None, resets to ADT_DEFAULT_KEEPALIVE_INTERVAL
+
+        Raises:
+            ValueError: if a keepalive interval of greater than ADT_MAX_KEEPALIVE_INTERVAL
+                        minutes is specified
         """
         if interval is None:
             interval = ADT_DEFAULT_KEEPALIVE_INTERVAL

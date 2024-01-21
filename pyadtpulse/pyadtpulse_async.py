@@ -679,18 +679,74 @@ class PyADTPulseAsync:
         return self._pulse_connection.detailed_debug_logging
 
     @detailed_debug_logging.setter
+    @typechecked
     def detailed_debug_logging(self, value: bool) -> None:
         """Set detailed debug logging."""
         self._pulse_connection.detailed_debug_logging = value
 
     @property
+    def keepalive_interval(self) -> int:
+        """Get the keepalive interval in minutes.
+
+        Returns:
+            int: the keepalive interval
+        """
+        return self._pulse_properties.keepalive_interval
+
+    @keepalive_interval.setter
+    @typechecked
+    def keepalive_interval(self, interval: int | None) -> None:
+        """Set the keepalive interval in minutes.
+
+        Args:
+            interval (int|None): The number of minutes between keepalive calls
+                                 If set to None, resets to ADT_DEFAULT_KEEPALIVE_INTERVAL
+
+        Raises:
+            ValueError: if a keepalive interval of greater than ADT_MAX_KEEPALIVE_INTERVAL
+                        minutes is specified
+        """
+        self._pulse_properties.keepalive_interval = interval
+
+    @property
+    def relogin_interval(self) -> int:
+        """Get the relogin interval in minutes.
+
+        Returns:
+            int: the relogin interval
+        """
+        return self._pulse_properties.relogin_interval
+
+    @relogin_interval.setter
+    @typechecked
+    def relogin_interval(self, interval: int | None) -> None:
+        """Set the relogin interval in minutes.
+
+        If set to None, resets to ADT_DEFAULT_RELOGIN_INTERVAL
+        """
+        self._pulse_properties.relogin_interval = interval
+
+    @property
     def sync_check_exception(self) -> Exception | None:
-        """Return sync check exception."""
+        """Return sync check exception.
+
+        This should not be used by external code.
+
+        Returns:
+            Exception: sync check exception
+        """
         with self._pa_attribute_lock:
             return self._sync_check_exception
 
     @sync_check_exception.setter
+    @typechecked
     def sync_check_exception(self, value: Exception | None) -> None:
-        """Set sync check exception."""
+        """Set sync check exception.
+
+        This should not be used by external code.
+
+        Args:
+            value (Exception): sync check exception
+        """
         with self._pa_attribute_lock:
             self._sync_check_exception = value
