@@ -23,7 +23,6 @@ class PyADTPulseProperties:
     __slots__ = (
         "_updates_exist",
         "_pp_attribute_lock",
-        "_login_exception",
         "_relogin_interval",
         "_keepalive_interval",
         "_site",
@@ -62,7 +61,6 @@ class PyADTPulseProperties:
         """
         # FIXME use thread event/condition, regular condition?
         # defer initialization to make sure we have an event loop
-        self._login_exception: BaseException | None = None
 
         self._updates_exist = asyncio.locks.Event()
 
