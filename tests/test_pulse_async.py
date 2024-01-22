@@ -22,6 +22,7 @@ from pyadtpulse.const import (
 from pyadtpulse.exceptions import (
     PulseAccountLockedError,
     PulseAuthenticationError,
+    PulseGatewayOfflineError,
     PulseMFARequiredError,
     PulseNotLoggedInError,
 )
@@ -477,3 +478,32 @@ async def test_multiple_login(
     add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
     assert p.site.zones_as_dict is not None
     assert len(p.site.zones_as_dict) == len(extract_ids_from_data_directory) - 3
+
+
+@pytest.mark.asyncio
+async def test_gateway_offline(adt_pulse_instance, get_mocked_url, read_file):
+    p, response = await adt_pulse_instance
+    pattern = make_sync_check_pattern(get_mocked_url)
+    response.get(
+        get_mocked_url(ADT_ORB_URI), body=read_file("orb_gateway_offline.html")
+    )
+    response.get(
+        pattern,
+        body="1-0-0",
+        content_type="text/html",
+    )
+    response.get(
+        pattern,
+        body=DEFAULT_SYNC_CHECK,
+        content_type="text/html",
+    )
+    response.get(
+        pattern,
+        body=DEFAULT_SYNC_CHECK,
+        content_type="text/html",
+    )
+    shutdown_event = asyncio.Event()
+    shutdown_event.clear()
+    task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
+    with pytest.raises(PulseGatewayOfflineError):
+        await task
