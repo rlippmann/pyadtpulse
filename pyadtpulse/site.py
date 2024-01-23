@@ -316,7 +316,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
         with self._site_lock:
             orb_status = soup.find("canvas", {"id": "ic_orb"})
             if orb_status:
-                alarm_status = orb_status.get("orb")[0]
+                alarm_status = orb_status.get("orb")
                 if not alarm_status:
                     LOG.error("Failed to retrieve alarm status from orb!")
                 elif alarm_status == "offline":

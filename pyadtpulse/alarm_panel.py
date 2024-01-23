@@ -315,24 +315,24 @@ class ADTPulseAlarmPanel:
         sat_location = "security_button_0"
         with self._state_lock:
             if value:
-                text = value.text
+                text = value.text.lstrip().splitlines()[0]
                 last_updated = int(time())
 
-                if re.match("Disarmed", text):
+                if text.startswith("Disarmed"):
                     if (
                         self._status != ADT_ALARM_ARMING
                         or last_updated - self._last_arm_disarm > ADT_ARM_DISARM_TIMEOUT
                     ):
                         self._status = ADT_ALARM_OFF
                         self._last_arm_disarm = last_updated
-                elif re.match("Armed Away", text):
+                elif text.startswith("Armed Away"):
                     if (
                         self._status != ADT_ALARM_DISARMING
                         or last_updated - self._last_arm_disarm > ADT_ARM_DISARM_TIMEOUT
                     ):
                         self._status = ADT_ALARM_AWAY
                         self._last_arm_disarm = last_updated
-                elif re.match("Armed Stay", text):
+                elif text.startswith("Armed Stay"):
                     if (
                         self._status != ADT_ALARM_DISARMING
                         or last_updated - self._last_arm_disarm > ADT_ARM_DISARM_TIMEOUT
