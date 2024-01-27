@@ -44,7 +44,7 @@ RECOVERABLE_ERRORS = {
     HTTPStatus.GATEWAY_TIMEOUT,
 }
 
-MAX_RETRIES = 3
+MAX_REQUERY_RETRIES = 3
 
 
 class PulseQueryManager:
@@ -257,7 +257,12 @@ class PulseQueryManager:
             debug_locks=self._debug_locks,
             detailed_debug_logging=self._connection_properties.detailed_debug_logging,
         )
-        while retry < MAX_RETRIES:
+        max_retries = (
+            MAX_REQUERY_RETRIES
+            if not self._connection_status.get_backoff().will_backoff()
+            else 1
+        )
+        while retry < max_retries:
             try:
                 await query_backoff.wait_for_backoff()
                 retry += 1
@@ -302,9 +307,9 @@ class PulseQueryManager:
                             self._get_http_status_description(return_value[0]),
                             retry,
                         )
-                        if retry == MAX_RETRIES:
+                        if retry == max_retries:
                             LOG.debug(
-                                "Exceeded max retries of %d, giving up", MAX_RETRIES
+                                "Exceeded max retries of %d, giving up", max_retries
                             )
                         else:
                             query_backoff.increment_backoff()
@@ -329,15 +334,15 @@ class PulseQueryManager:
                     url,
                     exc_info=True,
                 )
-                if retry == MAX_RETRIES:
+                if retry == max_retries:
                     self._handle_network_errors(ex)
                 query_backoff.increment_backoff()
                 continue
             except TimeoutError as ex:
-                if retry == MAX_RETRIES:
-                    LOG.debug("Exceeded max retries of %d, giving up", MAX_RETRIES)
+                if retry == max_retries:
+                    LOG.debug("Exceeded max retries of %d, giving up", max_retries)
                     raise PulseServerConnectionError(
-                        f"Exceeded max retries of {MAX_RETRIES}, giving up",
+                        f"Exceeded max retries of {max_retries}, giving up",
                         self._connection_status.get_backoff(),
                     ) from ex
                 query_backoff.increment_backoff()

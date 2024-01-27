@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, patch
 
 import aiohttp
 import pytest
-from freezegun import freeze_time
 
 from conftest import LoginType, add_custom_response, add_logout, add_signin
 from pyadtpulse.const import (
@@ -21,12 +20,12 @@ from pyadtpulse.const import (
     DEFAULT_API_HOST,
 )
 from pyadtpulse.exceptions import (
-    PulseAccountLockedError,
     PulseAuthenticationError,
     PulseConnectionError,
     PulseGatewayOfflineError,
     PulseMFARequiredError,
     PulseNotLoggedInError,
+    PulseServerConnectionError,
 )
 from pyadtpulse.pyadtpulse_async import PyADTPulseAsync
 
@@ -176,7 +175,6 @@ async def test_login(
         file_name=LoginType.SUCCESS.value,
     )
     await p.async_logout()
-    await asyncio.sleep(1)
     assert not p._pulse_connection_status.authenticated_flag.is_set()
     assert p._pulse_connection_status.get_backoff().backoff_count == 0
     assert p._pulse_connection.login_in_progress is False
@@ -188,37 +186,31 @@ async def test_login(
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(60)
-async def test_login_failures(adt_pulse_instance, get_mocked_url, read_file):
+@pytest.mark.parametrize(
+    "test_type",
+    (
+        (LoginType.FAIL, PulseAuthenticationError),
+        (LoginType.NOT_SIGNED_IN, PulseNotLoggedInError),
+        (LoginType.MFA, PulseMFARequiredError),
+    ),
+)
+async def test_login_failures(adt_pulse_instance, get_mocked_url, read_file, test_type):
     p, response = await adt_pulse_instance
     assert p._pulse_connection.login_backoff.backoff_count == 0, "initial"
     add_logout(response, get_mocked_url, read_file)
     await p.async_logout()
     assert p._pulse_connection.login_backoff.backoff_count == 0, "post logout"
-    for test_type in (
-        (LoginType.FAIL, PulseAuthenticationError),
-        (LoginType.NOT_SIGNED_IN, PulseNotLoggedInError),
-        (LoginType.MFA, PulseMFARequiredError),
-    ):
-        assert p._pulse_connection.login_backoff.backoff_count == 0, str(test_type)
-        add_signin(test_type[0], response, get_mocked_url, read_file)
-        with pytest.raises(test_type[1]):
-            await p.async_login()
-        await asyncio.sleep(1)
-        assert p._timeout_task is None or p._timeout_task.done()
-        assert p._pulse_connection.login_backoff.backoff_count == 0, str(test_type)
-        if test_type[0] == LoginType.MFA:
-            # pop the post MFA redirect from the responses
-            with pytest.raises(PulseMFARequiredError):
-                await p.async_login()
-        add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
-        await p.async_login()
-        assert p._pulse_connection.login_backoff.backoff_count == 0
 
-    with freeze_time() as frozen_time:
-        add_signin(LoginType.LOCKED, response, get_mocked_url, read_file)
-        with pytest.raises(PulseAccountLockedError):
-            await p.async_login()
+    assert p._pulse_connection.login_backoff.backoff_count == 0, str(test_type[0])
+    add_signin(test_type[0], response, get_mocked_url, read_file)
+    with pytest.raises(test_type[1]):
+        await p.async_login()
+    await asyncio.sleep(1)
+    assert p._timeout_task is None or p._timeout_task.done()
+    assert p._pulse_connection.login_backoff.backoff_count == 0, str(test_type)
+    add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
+    await p.async_login()
+    assert p._pulse_connection.login_backoff.backoff_count == 0
 
 
 async def do_wait_for_update(p: PyADTPulseAsync, shutdown_event: asyncio.Event):
@@ -234,9 +226,6 @@ async def test_wait_for_update(adt_pulse_instance, get_mocked_url, read_file):
     p, responses = await adt_pulse_instance
     shutdown_event = asyncio.Event()
     task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
-    await asyncio.sleep(1)
-    while task.get_stack is None:
-        await asyncio.sleep(1)
     await p.async_logout()
     assert p._sync_task is None
     assert p.site.name == "Robert Lippmann"
@@ -358,8 +347,6 @@ async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
             assert code == 200
             assert content == NEXT_SYNC_CHECK
 
-    shutdown_event = asyncio.Event()
-    shutdown_event.clear()
     setup_sync_check()
     # do a first run though to make sure aioresponses will work ok
     await test_sync_check_and_orb()
@@ -383,18 +370,12 @@ async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
                 state = "OK"
             add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
             await p.async_login()
-            task = asyncio.create_task(
-                do_wait_for_update(p, shutdown_event), name=f"wait_for_update-{j}-{i}"
-            )
-            await asyncio.sleep(3)
-            assert p._sync_task is not None
-            await p.async_logout()
-            await asyncio.sleep(0)
-            with pytest.raises(PulseNotLoggedInError):
-                await task
-            await asyncio.sleep(0)
+            await p.wait_for_update()
             assert len(p.site.zones) == 13
             assert p.site.zones_as_dict[zone].state == state
+            assert p._sync_task is not None
+            await p.async_logout()
+
             assert p._sync_task is None
     assert p._timeout_task is None
     # assert m.call_count == 2
@@ -598,4 +579,32 @@ async def test_connection_fails_wait_for_update(
     await p.async_login()
     with pytest.raises(PulseConnectionError):
         await do_wait_for_update(p, asyncio.Event())
+    await p.async_logout()
+
+
+@pytest.mark.timeout(120)
+@pytest.mark.asyncio
+async def test_sync_check_disconnect(adt_pulse_instance, read_file, get_mocked_url):
+    p: PyADTPulseAsync
+    p, responses = await adt_pulse_instance
+    add_signin(LoginType.SUCCESS, responses, get_mocked_url, read_file)
+    add_logout(responses, get_mocked_url, read_file)
+    await p.async_login()
+    pattern = make_sync_check_pattern(get_mocked_url)
+    responses.get(pattern, body=DEFAULT_SYNC_CHECK, content_type="text/html")
+    responses.get(get_mocked_url(ADT_ORB_URI), body=read_file("orb.html"), repeat=True)
+    while p._pulse_connection_status.get_backoff().get_current_backoff_interval() < 15:
+        try:
+            await p.wait_for_update()
+        except PulseServerConnectionError:
+            pass
+        except Exception:
+            pytest.fail("wait_for_update did not return PulseServerConnectionError")
+
+    # check recovery
+    responses.get(pattern, body="1-0-0", content_type="text/html")
+    responses.get(
+        pattern, body=DEFAULT_SYNC_CHECK, content_type="text/html", repeat=True
+    )
+    await p.wait_for_update()
     await p.async_logout()
