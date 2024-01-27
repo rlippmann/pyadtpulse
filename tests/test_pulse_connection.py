@@ -17,7 +17,7 @@ from pyadtpulse.pulse_authentication_properties import PulseAuthenticationProper
 from pyadtpulse.pulse_connection import PulseConnection
 from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
 from pyadtpulse.pulse_connection_status import PulseConnectionStatus
-from pyadtpulse.pulse_query_manager import MAX_RETRIES
+from pyadtpulse.pulse_query_manager import MAX_REQUERY_RETRIES
 
 
 def setup_pulse_connection() -> PulseConnection:
@@ -84,7 +84,7 @@ async def test_multiple_login(
     # this should fail
     with pytest.raises(PulseServerConnectionError):
         await pc.async_do_login_query()
-    assert mock_sleep.call_count == MAX_RETRIES - 1
+    assert mock_sleep.call_count == MAX_REQUERY_RETRIES - 1
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     assert pc._connection_status.get_backoff().backoff_count == 1
@@ -94,7 +94,7 @@ async def test_multiple_login(
         await pc.async_do_login_query()
     assert pc._login_backoff.backoff_count == 0
     # 2 retries first time, 3 the second
-    assert mock_sleep.call_count == MAX_RETRIES - 1 + MAX_RETRIES
+    assert mock_sleep.call_count == MAX_REQUERY_RETRIES - 1 + MAX_REQUERY_RETRIES
     assert pc.login_in_progress is False
 
     assert pc._connection_status.get_backoff().backoff_count == 2
@@ -103,7 +103,7 @@ async def test_multiple_login(
     add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     # will do a backoff, then query
-    assert mock_sleep.call_count == MAX_RETRIES - 1 + MAX_RETRIES + 1
+    assert mock_sleep.call_count == MAX_REQUERY_RETRIES - 1 + MAX_REQUERY_RETRIES + 1
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     assert pc._connection_status.authenticated_flag.is_set()
@@ -111,7 +111,7 @@ async def test_multiple_login(
     add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     await pc.async_do_login_query()
     # shouldn't sleep at all
-    assert mock_sleep.call_count == MAX_RETRIES - 1 + MAX_RETRIES + 1
+    assert mock_sleep.call_count == MAX_REQUERY_RETRIES - 1 + MAX_REQUERY_RETRIES + 1
     assert pc.login_in_progress is False
     assert pc._login_backoff.backoff_count == 0
     assert pc._connection_status.authenticated_flag.is_set()

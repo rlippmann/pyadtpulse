@@ -17,7 +17,7 @@ from pyadtpulse.exceptions import (
 )
 from pyadtpulse.pulse_connection_properties import PulseConnectionProperties
 from pyadtpulse.pulse_connection_status import PulseConnectionStatus
-from pyadtpulse.pulse_query_manager import MAX_RETRIES, PulseQueryManager
+from pyadtpulse.pulse_query_manager import MAX_REQUERY_RETRIES, PulseQueryManager
 
 
 @pytest.mark.asyncio
@@ -280,7 +280,7 @@ async def test_async_query_exceptions(
             error_type = PulseClientConnectionError
         else:
             error_type = PulseServerConnectionError
-        for _ in range(MAX_RETRIES + 1):
+        for _ in range(MAX_REQUERY_RETRIES + 1):
             mocked_server_responses.get(
                 cp.make_url(ADT_ORB_URI),
                 exception=ex,
@@ -301,16 +301,18 @@ async def test_async_query_exceptions(
             message = f"Expected {error_type}, got {actual_error_type}"
             pytest.fail(message)
 
-        # only MAX_RETRIES - 1 sleeps since first call won't sleep
+        # only MAX_REQUERY_RETRIES - 1 sleeps since first call won't sleep
         assert (
-            mock_sleep.call_count == curr_sleep_count + MAX_RETRIES - 1
+            mock_sleep.call_count == curr_sleep_count + MAX_REQUERY_RETRIES - 1
         ), f"Failure on exception {type(ex).__name__}"
         assert mock_sleep.call_args_list[curr_sleep_count][0][0] == query_backoff
-        for i in range(curr_sleep_count + 2, curr_sleep_count + MAX_RETRIES - 1):
+        for i in range(
+            curr_sleep_count + 2, curr_sleep_count + MAX_REQUERY_RETRIES - 1
+        ):
             assert mock_sleep.call_args_list[i][0][0] == query_backoff * 2 ** (
                 i - curr_sleep_count
             ), f"Failure on exception sleep count {i} on exception {type(ex).__name__}"
-        curr_sleep_count += MAX_RETRIES - 1
+        curr_sleep_count += MAX_REQUERY_RETRIES - 1
         assert (
             s.get_backoff().backoff_count == 1
         ), f"Failure on exception {type(ex).__name__}"
