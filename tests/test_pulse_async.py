@@ -1,10 +1,15 @@
 """Test Pulse Query Manager."""
 import asyncio
 import re
+from collections.abc import Generator
+from http.client import responses
+from typing import Any, Callable, Literal
 from unittest.mock import AsyncMock, patch
 
 import aiohttp
 import pytest
+from aioresponses import aioresponses
+from pytest_mock import MockerFixture
 
 from conftest import LoginType, add_custom_response, add_logout, add_signin
 from pyadtpulse.const import (
@@ -27,6 +32,7 @@ from pyadtpulse.exceptions import (
     PulseNotLoggedInError,
     PulseServerConnectionError,
 )
+from pyadtpulse.pulse_authentication_properties import PulseAuthenticationProperties
 from pyadtpulse.pyadtpulse_async import PyADTPulseAsync
 
 DEFAULT_SYNC_CHECK = "234532-456432-0"
@@ -45,11 +51,11 @@ def set_keepalive(get_mocked_url, mocked_server_responses, repeat: bool = False)
 
 @pytest.mark.asyncio
 async def test_mocked_responses(
-    read_file,
-    mocked_server_responses,
-    get_mocked_mapped_static_responses,
-    get_mocked_url,
-    extract_ids_from_data_directory,
+    read_file: Callable[..., str],
+    mocked_server_responses: aioresponses,
+    get_mocked_mapped_static_responses: dict[str, str],
+    get_mocked_url: Callable[..., str],
+    extract_ids_from_data_directory: list[str],
 ):
     """Fixture to test mocked responses."""
     static_responses = get_mocked_mapped_static_responses
@@ -136,7 +142,10 @@ def wrap_wait_for_update():
 @pytest.fixture
 @pytest.mark.asyncio
 async def adt_pulse_instance(
-    mocked_server_responses, extract_ids_from_data_directory, get_mocked_url, read_file
+    mocked_server_responses: aioresponses,
+    extract_ids_from_data_directory: list[str],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
 ):
     """Create an instance of PyADTPulseAsync and login."""
     p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
@@ -158,7 +167,10 @@ async def adt_pulse_instance(
 
 @pytest.mark.asyncio
 async def test_login(
-    adt_pulse_instance, extract_ids_from_data_directory, get_mocked_url, read_file
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    extract_ids_from_data_directory: list[str],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
 ):
     """Fixture to test login."""
     p, response = await adt_pulse_instance
@@ -194,7 +206,12 @@ async def test_login(
         (LoginType.MFA, PulseMFARequiredError),
     ),
 )
-async def test_login_failures(adt_pulse_instance, get_mocked_url, read_file, test_type):
+async def test_login_failures(
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
+    test_type: Literal[LoginType.FAIL, LoginType.NOT_SIGNED_IN, LoginType.MFA],
+):
     p, response = await adt_pulse_instance
     assert p._pulse_connection.login_backoff.backoff_count == 0, "initial"
     add_logout(response, get_mocked_url, read_file)
@@ -222,7 +239,11 @@ async def do_wait_for_update(p: PyADTPulseAsync, shutdown_event: asyncio.Event):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_update(adt_pulse_instance, get_mocked_url, read_file):
+async def test_wait_for_update(
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
+):
     p, responses = await adt_pulse_instance
     shutdown_event = asyncio.Event()
     task = asyncio.create_task(do_wait_for_update(p, shutdown_event))
@@ -247,8 +268,14 @@ def make_sync_check_pattern(get_mocked_url):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("test_requests", (False, True))
 @pytest.mark.timeout(60)
-async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
+async def test_orb_update(
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
+    test_requests: bool,
+):
     p, response = await adt_pulse_instance
     pattern = make_sync_check_pattern(get_mocked_url)
 
@@ -347,12 +374,15 @@ async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
             assert code == 200
             assert content == NEXT_SYNC_CHECK
 
-    setup_sync_check()
     # do a first run though to make sure aioresponses will work ok
-    await test_sync_check_and_orb()
+    if not test_requests:
+        setup_sync_check()
+        await test_sync_check_and_orb()
+        await p.async_logout()
+        assert p._sync_task is None
+        assert p._timeout_task is None
+        return
     await p.async_logout()
-    assert p._sync_task is None
-    assert p._timeout_task is None
     for j in range(2):
         if j == 0:
             zone = 11
@@ -371,25 +401,29 @@ async def test_orb_update(adt_pulse_instance, get_mocked_url, read_file):
             add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
             await p.async_login()
             await p.wait_for_update()
+            await p.async_logout()
             assert len(p.site.zones) == 13
             assert p.site.zones_as_dict[zone].state == state
             assert p._sync_task is not None
-            await p.async_logout()
-
-            assert p._sync_task is None
-    assert p._timeout_task is None
-    # assert m.call_count == 2
 
 
 @pytest.mark.asyncio
-async def test_keepalive_check(adt_pulse_instance, get_mocked_url, read_file):
+async def test_keepalive_check(
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
+):
     p, response = await adt_pulse_instance
     assert p._timeout_task is not None
     await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
-async def test_infinite_sync_check(adt_pulse_instance, get_mocked_url, read_file):
+async def test_infinite_sync_check(
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
+):
     p, response = await adt_pulse_instance
     pattern = re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
     response.get(
@@ -408,7 +442,12 @@ async def test_infinite_sync_check(adt_pulse_instance, get_mocked_url, read_file
 
 
 @pytest.mark.asyncio
-async def test_sync_check_errors(adt_pulse_instance, get_mocked_url, read_file, mocker):
+async def test_sync_check_errors(
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
+    mocker: Callable[..., Generator[MockerFixture, None, None]],
+):
     p, response = await adt_pulse_instance
     pattern = re.compile(rf"{re.escape(get_mocked_url(ADT_SYNC_CHECK_URI))}/?.*$")
 
@@ -443,7 +482,10 @@ async def test_sync_check_errors(adt_pulse_instance, get_mocked_url, read_file, 
 
 @pytest.mark.asyncio
 async def test_multiple_login(
-    adt_pulse_instance, extract_ids_from_data_directory, get_mocked_url, read_file
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    extract_ids_from_data_directory: list[str],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
 ):
     p, response = await adt_pulse_instance
     add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
@@ -465,8 +507,11 @@ async def test_multiple_login(
 
 @pytest.mark.timeout(180)
 @pytest.mark.asyncio
-async def test_gateway_offline(adt_pulse_instance, get_mocked_url, read_file):
-    p: PyADTPulseAsync
+async def test_gateway_offline(
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+):
     p, response = await adt_pulse_instance
     pattern = make_sync_check_pattern(get_mocked_url)
     response.get(
@@ -509,17 +554,12 @@ async def test_gateway_offline(adt_pulse_instance, get_mocked_url, read_file):
     response.get(
         pattern, body=DEFAULT_SYNC_CHECK, content_type="text/html", repeat=True
     )
-    add_signin(LoginType.SUCCESS, response, get_mocked_url, read_file)
-    await p.async_login()
+    add_logout(response, get_mocked_url, read_file)
     assert p.site.gateway.poll_interval == 2.0
     # FIXME: why + 2?
     for i in range(num_backoffs + 2):
-        try:
+        with pytest.raises(PulseGatewayOfflineError):
             await p.wait_for_update()
-        except PulseGatewayOfflineError:
-            pass
-        except Exception:
-            pytest.fail("wait_for_update did not return PulseGatewayOfflineError")
 
     await p.wait_for_update()
     assert p.site.gateway.is_online
@@ -529,20 +569,24 @@ async def test_gateway_offline(adt_pulse_instance, get_mocked_url, read_file):
 
 
 @pytest.mark.asyncio
-async def test_not_logged_in(mocked_server_responses, get_mocked_url, read_file):
+async def test_not_logged_in(
+    mocked_server_responses: aioresponses,
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
+):
     p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
     add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     add_logout(mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseNotLoggedInError):
-        await do_wait_for_update(p, asyncio.Event())
+        await p.wait_for_update()
     with pytest.raises(PulseNotLoggedInError):
-        await do_wait_for_update(p, asyncio.Event())
+        await p.wait_for_update()
     await p.async_login()
     await p.async_logout()
     with pytest.raises(PulseNotLoggedInError):
-        await do_wait_for_update(p, asyncio.Event())
+        await p.wait_for_update()
     with pytest.raises(PulseNotLoggedInError):
-        await do_wait_for_update(p, asyncio.Event())
+        await p.wait_for_update()
     add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
     add_logout(mocked_server_responses, get_mocked_url, read_file)
     pattern = make_sync_check_pattern(get_mocked_url)
@@ -559,16 +603,18 @@ async def test_not_logged_in(mocked_server_responses, get_mocked_url, read_file)
     with pytest.raises(PulseNotLoggedInError):
         await task
     with pytest.raises(PulseNotLoggedInError):
-        await do_wait_for_update(p, asyncio.Event())
+        await p.wait_for_update()
     await asyncio.sleep(ADT_DEFAULT_POLL_INTERVAL * 2)
     with pytest.raises(PulseNotLoggedInError):
-        await do_wait_for_update(p, asyncio.Event())
+        await p.wait_for_update()
 
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(120)
 async def test_connection_fails_wait_for_update(
-    mocked_server_responses, get_mocked_url, read_file
+    mocked_server_responses: aioresponses,
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
 ):
     p = PyADTPulseAsync("testuser@example.com", "testpassword", "testfingerprint")
     add_signin(LoginType.SUCCESS, mocked_server_responses, get_mocked_url, read_file)
@@ -582,29 +628,63 @@ async def test_connection_fails_wait_for_update(
     await p.async_logout()
 
 
-@pytest.mark.timeout(120)
+@pytest.mark.timeout(180)
 @pytest.mark.asyncio
-async def test_sync_check_disconnect(adt_pulse_instance, read_file, get_mocked_url):
-    p: PyADTPulseAsync
+async def test_sync_check_disconnect(
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    read_file: Callable[..., str],
+    get_mocked_url: Callable[..., str],
+):
     p, responses = await adt_pulse_instance
-    add_signin(LoginType.SUCCESS, responses, get_mocked_url, read_file)
     add_logout(responses, get_mocked_url, read_file)
-    await p.async_login()
     pattern = make_sync_check_pattern(get_mocked_url)
     responses.get(pattern, body=DEFAULT_SYNC_CHECK, content_type="text/html")
     responses.get(get_mocked_url(ADT_ORB_URI), body=read_file("orb.html"), repeat=True)
     while p._pulse_connection_status.get_backoff().get_current_backoff_interval() < 15:
-        try:
+        with pytest.raises(PulseServerConnectionError):
             await p.wait_for_update()
-        except PulseServerConnectionError:
-            pass
-        except Exception:
-            pytest.fail("wait_for_update did not return PulseServerConnectionError")
-
     # check recovery
     responses.get(pattern, body="1-0-0", content_type="text/html")
     responses.get(
         pattern, body=DEFAULT_SYNC_CHECK, content_type="text/html", repeat=True
     )
     await p.wait_for_update()
+    await p.async_logout()
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_sync_check_relogin(
+    adt_pulse_instance: tuple[PyADTPulseAsync, Any],
+    get_mocked_url: Callable[..., str],
+    read_file: Callable[..., str],
+):
+    p, responses = await adt_pulse_instance
+    pa: PulseAuthenticationProperties = p._authentication_properties
+    login_time = pa.last_login_time
+    # fail redirect
+    add_signin(LoginType.NOT_SIGNED_IN, responses, get_mocked_url, read_file)
+    # successful login afterward
+    add_signin(LoginType.SUCCESS, responses, get_mocked_url, read_file)
+    add_logout(responses, get_mocked_url, read_file)
+    pattern = make_sync_check_pattern(get_mocked_url)
+    for _ in range(3):
+        responses.get(pattern, body=DEFAULT_SYNC_CHECK, content_type="text/html")
+    responses.get(
+        pattern,
+        body="",
+        content_type="text/html",
+        status=307,
+        headers={"Location": get_mocked_url(ADT_LOGIN_URI)},
+    )
+    # resume normal operation
+    # signal update to stop wait for update
+    responses.get(pattern, body="1-0-0", content_type="text/html")
+    responses.get(
+        pattern, body=DEFAULT_SYNC_CHECK, content_type="text/html", repeat=True
+    )
+    responses.get(get_mocked_url(ADT_ORB_URI), body=read_file("orb.html"), repeat=True)
+
+    await p.wait_for_update()
+    assert p._authentication_properties.last_login_time > login_time
     await p.async_logout()

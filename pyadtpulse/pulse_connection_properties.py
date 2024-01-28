@@ -228,13 +228,7 @@ class PulseConnectionProperties:
         with self._pci_attribute_lock:
             return f"{self._api_host}{API_PREFIX}{self._api_version}{uri}"
 
-    async def clear_session(self):
+    def clear_session(self):
         """Clear the session."""
         with self._pci_attribute_lock:
-            # remove the old session first to prevent an edge case
-            # where another coroutine might jump in during the await close()
-            # and get the old session.
-            old_session = self._session
             self._session = None
-            if old_session is not None and not old_session.closed:
-                await old_session.close()

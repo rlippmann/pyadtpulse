@@ -3,15 +3,19 @@ import logging
 import asyncio
 import time
 from datetime import datetime, timedelta
+from typing import Any, Callable
 
 import pytest
 from aiohttp import client_exceptions, client_reqrep
+from aioresponses import aioresponses
 from bs4 import BeautifulSoup
+from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
 
 from conftest import MOCKED_API_VERSION
 from pyadtpulse.const import ADT_ORB_URI, DEFAULT_API_HOST
 from pyadtpulse.exceptions import (
     PulseClientConnectionError,
+    PulseConnectionError,
     PulseServerConnectionError,
     PulseServiceTemporarilyUnavailableError,
 )
@@ -21,7 +25,7 @@ from pyadtpulse.pulse_query_manager import MAX_REQUERY_RETRIES, PulseQueryManage
 
 
 @pytest.mark.asyncio
-async def test_fetch_version(mocked_server_responses):
+async def test_fetch_version(mocked_server_responses: aioresponses):
     """Test fetch version."""
     s = PulseConnectionStatus()
     cp = PulseConnectionProperties(DEFAULT_API_HOST)
@@ -31,7 +35,7 @@ async def test_fetch_version(mocked_server_responses):
 
 
 @pytest.mark.asyncio
-async def test_fetch_version_fail(mock_server_down):
+async def test_fetch_version_fail(mock_server_down: aioresponses):
     """Test fetch version."""
     s = PulseConnectionStatus()
     cp = PulseConnectionProperties(DEFAULT_API_HOST)
@@ -46,7 +50,9 @@ async def test_fetch_version_fail(mock_server_down):
 
 
 @pytest.mark.asyncio
-async def test_fetch_version_eventually_succeeds(mock_server_temporarily_down):
+async def test_fetch_version_eventually_succeeds(
+    mock_server_temporarily_down: aioresponses,
+):
     """Test fetch version."""
     s = PulseConnectionStatus()
     cp = PulseConnectionProperties(DEFAULT_API_HOST)
@@ -64,7 +70,10 @@ async def test_fetch_version_eventually_succeeds(mock_server_temporarily_down):
 
 @pytest.mark.asyncio
 async def test_query_orb(
-    mocked_server_responses, read_file, mock_sleep, get_mocked_connection_properties
+    mocked_server_responses: aioresponses,
+    read_file: Callable[..., str],
+    mock_sleep: Any,
+    get_mocked_connection_properties: PulseConnectionProperties,
 ):
     """Test query orb.
 
@@ -104,10 +113,10 @@ async def test_query_orb(
 
 @pytest.mark.asyncio
 async def test_retry_after(
-    mocked_server_responses,
-    freeze_time_to_now,
-    get_mocked_connection_properties,
-    mock_sleep,
+    mocked_server_responses: aioresponses,
+    freeze_time_to_now: FrozenDateTimeFactory | StepTickTimeFactory,
+    get_mocked_connection_properties: PulseConnectionProperties,
+    mock_sleep: Any,
 ):
     """Test retry after."""
 
@@ -199,144 +208,137 @@ async def test_retry_after(
     await p.async_query(ADT_ORB_URI, requires_authentication=False)
 
 
-@pytest.mark.asyncio
-async def test_async_query_exceptions(
-    mocked_server_responses, mock_sleep, get_mocked_connection_properties
+async def run_query_exception_test(
+    mocked_server_responses,
+    mock_sleep,
+    get_mocked_connection_properties,
+    aiohttp_exception: client_exceptions.ClientError,
+    pulse_exception: PulseConnectionError,
 ):
     s = PulseConnectionStatus()
     cp = get_mocked_connection_properties
     p = PulseQueryManager(s, cp)
-    # test one exception
-    mocked_server_responses.get(
-        cp.make_url(ADT_ORB_URI),
-        exception=client_exceptions.ClientConnectionError(),
-    )
-    mocked_server_responses.get(
-        cp.make_url(ADT_ORB_URI),
-        status=200,
-    )
-    await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert mock_sleep.call_count == 1
-    curr_sleep_count = mock_sleep.call_count
-    assert (
-        mock_sleep.call_args_list[0][0][0] == s.get_backoff().initial_backoff_interval
-    )
-    assert s.get_backoff().backoff_count == 0
-    mocked_server_responses.get(
-        cp.make_url(ADT_ORB_URI),
-        status=200,
-    )
-    await p.async_query(ADT_ORB_URI, requires_authentication=False)
-    assert mock_sleep.call_count == 1
-    assert s.get_backoff().backoff_count == 0
-    query_backoff = s.get_backoff().initial_backoff_interval
-    connector_errors = (
-        client_exceptions.ClientConnectorError(
-            client_reqrep.ConnectionKey(
-                DEFAULT_API_HOST,
-                443,
-                is_ssl=True,
-                ssl=True,
-                proxy=None,
-                proxy_auth=None,
-                proxy_headers_hash=None,
-            ),
-            os_error=error_type,
-        )
-        for error_type in (
-            ConnectionRefusedError,
-            ConnectionResetError,
-            TimeoutError,
-            BrokenPipeError,
-        )
-    )
-
     # need to do ClientConnectorError, but it requires initialization
-    for ex in (
-        client_exceptions.ClientConnectionError(),
-        client_exceptions.ClientError(),
-        client_exceptions.ClientOSError(),
-        client_exceptions.ServerDisconnectedError(),
-        client_exceptions.ServerTimeoutError(),
-        client_exceptions.ServerConnectionError(),
-        asyncio.TimeoutError(),
-        *connector_errors,
-    ):
-        print(
-            type(
-                ex,
-            )
-        )
-        if type(ex) in (
-            client_exceptions.ClientConnectionError,
-            client_exceptions.ClientError,
-            client_exceptions.ClientOSError,
-        ):
-            error_type = PulseClientConnectionError
-        elif type(ex) == client_exceptions.ClientConnectorError and ex.os_error in (
-            TimeoutError,
-            BrokenPipeError,
-        ):
-            error_type = PulseClientConnectionError
-        else:
-            error_type = PulseServerConnectionError
-        for _ in range(MAX_REQUERY_RETRIES + 1):
-            mocked_server_responses.get(
-                cp.make_url(ADT_ORB_URI),
-                exception=ex,
-            )
+    for _ in range(MAX_REQUERY_RETRIES + 1):
         mocked_server_responses.get(
             cp.make_url(ADT_ORB_URI),
-            status=200,
+            exception=aiohttp_exception,
         )
-        exc_info = None
-        try:
-            with pytest.raises(error_type) as exc_info:
-                await p.async_query(
-                    ADT_ORB_URI,
-                    requires_authentication=False,
-                )
-        except AssertionError:
-            actual_error_type = exc_info.type if exc_info else None
-            message = f"Expected {error_type}, got {actual_error_type}"
-            pytest.fail(message)
+    mocked_server_responses.get(
+        cp.make_url(ADT_ORB_URI),
+        status=200,
+    )
+    with pytest.raises(pulse_exception):
+        await p.async_query(
+            ADT_ORB_URI,
+            requires_authentication=False,
+        )
 
-        # only MAX_REQUERY_RETRIES - 1 sleeps since first call won't sleep
-        assert (
-            mock_sleep.call_count == curr_sleep_count + MAX_REQUERY_RETRIES - 1
-        ), f"Failure on exception {type(ex).__name__}"
-        assert mock_sleep.call_args_list[curr_sleep_count][0][0] == query_backoff
-        for i in range(
-            curr_sleep_count + 2, curr_sleep_count + MAX_REQUERY_RETRIES - 1
-        ):
-            assert mock_sleep.call_args_list[i][0][0] == query_backoff * 2 ** (
-                i - curr_sleep_count
-            ), f"Failure on exception sleep count {i} on exception {type(ex).__name__}"
-        curr_sleep_count += MAX_REQUERY_RETRIES - 1
-        assert (
-            s.get_backoff().backoff_count == 1
-        ), f"Failure on exception {type(ex).__name__}"
-        backoff_sleep = s.get_backoff().get_current_backoff_interval()
+    # only MAX_REQUERY_RETRIES - 1 sleeps since first call won't sleep
+    assert (
+        mock_sleep.call_count == MAX_REQUERY_RETRIES - 1
+    ), f"Failure on exception {aiohttp_exception.__name__}"
+    for i in range(MAX_REQUERY_RETRIES - 1):
+        assert mock_sleep.call_args_list[i][0][0] == 1 * 2 ** (
+            i
+        ), f"Failure on exception sleep count {i} on exception {aiohttp_exception.__name__}"
+    assert (
+        s.get_backoff().backoff_count == 1
+    ), f"Failure on exception {aiohttp_exception.__name__}"
+    with pytest.raises(pulse_exception):
         await p.async_query(ADT_ORB_URI, requires_authentication=False)
-        # pqm backoff should trigger here
-        curr_sleep_count += 2
-        # 1 backoff for query, 1 for connection backoff
-        assert mock_sleep.call_count == curr_sleep_count
-        assert mock_sleep.call_args_list[curr_sleep_count - 2][0][0] == backoff_sleep
-        assert mock_sleep.call_args_list[curr_sleep_count - 1][0][0] == backoff_sleep
-        assert s.get_backoff().backoff_count == 0
-        mocked_server_responses.get(
-            cp.make_url(ADT_ORB_URI),
-            status=200,
-        )
-        # this shouldn't trigger a sleep
-        await p.async_query(ADT_ORB_URI, requires_authentication=False)
-        assert mock_sleep.call_count == curr_sleep_count
+    # pqm backoff should trigger here
+
+    # MAX_REQUERY_RETRIES - 1 backoff for query, 1 for connection backoff
+    assert mock_sleep.call_count == MAX_REQUERY_RETRIES
+    assert (
+        mock_sleep.call_args_list[MAX_REQUERY_RETRIES - 1][0][0]
+        == s.get_backoff().initial_backoff_interval
+    )
+    mocked_server_responses.get(
+        cp.make_url(ADT_ORB_URI),
+        status=200,
+    )
+    # this should trigger a sleep
+    await p.async_query(ADT_ORB_URI, requires_authentication=False)
+    assert mock_sleep.call_count == MAX_REQUERY_RETRIES + 1
+    assert (
+        mock_sleep.call_args_list[MAX_REQUERY_RETRIES][0][0]
+        == s.get_backoff().initial_backoff_interval * 2
+    )
+    # this shouldn't trigger a sleep
+    await p.async_query(ADT_ORB_URI, requires_authentication=False)
+    assert mock_sleep.call_count == MAX_REQUERY_RETRIES + 1
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "test_exception",
+    (
+        (client_exceptions.ClientConnectionError, PulseClientConnectionError),
+        (client_exceptions.ClientError, PulseClientConnectionError),
+        (client_exceptions.ClientOSError, PulseClientConnectionError),
+        (client_exceptions.ServerDisconnectedError, PulseServerConnectionError),
+        (client_exceptions.ServerTimeoutError, PulseServerConnectionError),
+        (client_exceptions.ServerConnectionError, PulseServerConnectionError),
+        (asyncio.TimeoutError, PulseServerConnectionError),
+    ),
+)
+async def test_async_query_exceptions(
+    mocked_server_responses: aioresponses,
+    mock_sleep: Any,
+    get_mocked_connection_properties: PulseConnectionProperties,
+    test_exception,
+):
+    await run_query_exception_test(
+        mocked_server_responses,
+        mock_sleep,
+        get_mocked_connection_properties,
+        *test_exception,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "test_exception",
+    (
+        (ConnectionRefusedError, PulseServerConnectionError),
+        (ConnectionResetError, PulseServerConnectionError),
+        (TimeoutError, PulseClientConnectionError),
+        (BrokenPipeError, PulseClientConnectionError),
+    ),
+)
+async def test_async_query_connector_errors(
+    mocked_server_responses: aioresponses,
+    mock_sleep: Any,
+    get_mocked_connection_properties: PulseConnectionProperties,
+    test_exception,
+):
+    aiohttp_exception = client_exceptions.ClientConnectorError(
+        client_reqrep.ConnectionKey(
+            DEFAULT_API_HOST,
+            443,
+            is_ssl=True,
+            ssl=True,
+            proxy=None,
+            proxy_auth=None,
+            proxy_headers_hash=None,
+        ),
+        os_error=test_exception[0],
+    )
+    await run_query_exception_test(
+        mocked_server_responses,
+        mock_sleep,
+        get_mocked_connection_properties,
+        aiohttp_exception,
+        test_exception[1],
+    )
+
+
 async def test_wait_for_authentication_flag(
-    mocked_server_responses, get_mocked_connection_properties, read_file
+    mocked_server_responses: aioresponses,
+    get_mocked_connection_properties: PulseConnectionProperties,
+    read_file: Callable[..., str],
 ):
     async def query_orb_task(lock: asyncio.Lock):
         async with lock:
