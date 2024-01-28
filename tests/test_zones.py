@@ -1081,9 +1081,7 @@ class TestADTPulseZones:
         zones[2] = ADTPulseZoneData("Zone 2", "sensor-2")
         zones[3] = ADTPulseZoneData("Zone 3", "sensor-3")
         with pytest.raises(TypeCheckError):
-            zones[
-                3
-            ].tags = "Invalid Tags"  # Modify one of the zone data to an invalid type
+            zones[3].tags = "Invalid Tags"
 
     # ADTPulseZones skips incomplete zone data when updating zone attributes
     def test_skips_incomplete_zone_data(self):
