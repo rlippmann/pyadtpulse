@@ -1,4 +1,5 @@
 """Test for pulse_backoff."""
+
 from time import time
 
 import pytest

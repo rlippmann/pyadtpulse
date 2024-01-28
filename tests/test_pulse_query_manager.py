@@ -1,4 +1,5 @@
 """Test Pulse Query Manager."""
+
 import logging
 import asyncio
 import time

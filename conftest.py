@@ -367,9 +367,11 @@ class PulseMockedWebServer:
                 return web.Response(
                     text="Service Unavailable",
                     status=self.status_code,
-                    headers={"Retry-After": self.retry_after_header}
-                    if self.retry_after_header
-                    else None,
+                    headers=(
+                        {"Retry-After": self.retry_after_header}
+                        if self.retry_after_header
+                        else None
+                    ),
                 )
             return None
 
@@ -382,9 +384,11 @@ class PulseMockedWebServer:
                 return web.Response(
                     text="Rate Limit Exceeded",
                     status=self.status_code,
-                    headers={"Retry-After": self.retry_after_header}
-                    if self.retry_after_header
-                    else None,
+                    headers=(
+                        {"Retry-After": self.retry_after_header}
+                        if self.retry_after_header
+                        else None
+                    ),
                 )
             return None
 
