@@ -1,4 +1,5 @@
 """Test Pulse Connection."""
+
 import asyncio
 import datetime
 

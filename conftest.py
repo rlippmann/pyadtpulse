@@ -1,4 +1,5 @@
 """Pulse Test Configuration."""
+
 import os
 import re
 import sys

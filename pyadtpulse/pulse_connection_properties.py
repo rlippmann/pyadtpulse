@@ -1,4 +1,5 @@
 """Pulse connection info."""
+
 from asyncio import AbstractEventLoop
 from re import search
 

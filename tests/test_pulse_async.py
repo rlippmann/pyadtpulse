@@ -1,4 +1,5 @@
 """Test Pulse Query Manager."""
+
 import asyncio
 import re
 from collections.abc import Generator

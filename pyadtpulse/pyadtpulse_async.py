@@ -1,4 +1,5 @@
 """ADT Pulse Async API."""
+
 import logging
 import asyncio
 import re
