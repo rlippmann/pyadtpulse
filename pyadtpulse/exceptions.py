@@ -1,4 +1,5 @@
 """Pulse exceptions."""
+
 import datetime
 from time import time
 

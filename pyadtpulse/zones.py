@@ -1,4 +1,5 @@
 """ADT Pulse zone info."""
+
 import logging
 from collections import UserDict
 from dataclasses import dataclass

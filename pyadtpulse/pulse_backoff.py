@@ -1,4 +1,5 @@
 """Pulse backoff object."""
+
 import asyncio
 import datetime
 from logging import getLogger

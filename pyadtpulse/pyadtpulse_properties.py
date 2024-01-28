@@ -1,4 +1,5 @@
 """PyADTPulse Properties."""
+
 import logging
 import asyncio
 from warnings import warn

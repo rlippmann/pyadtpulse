@@ -1,4 +1,5 @@
 """Pulse Authentication Properties."""
+
 from re import match
 
 from typeguard import typechecked

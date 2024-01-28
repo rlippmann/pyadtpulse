@@ -1,4 +1,5 @@
 """Module representing an ADT Pulse Site."""
+
 import logging
 import re
 from asyncio import Task, create_task, gather, get_event_loop, run_coroutine_threadsafe

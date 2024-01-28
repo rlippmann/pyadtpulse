@@ -1,4 +1,5 @@
 """Pulse Site Properties."""
+
 from threading import RLock
 from warnings import warn
 

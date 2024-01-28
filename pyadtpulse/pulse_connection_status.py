@@ -1,4 +1,5 @@
 """Pulse Connection Status."""
+
 from asyncio import Event
 
 from typeguard import typechecked
