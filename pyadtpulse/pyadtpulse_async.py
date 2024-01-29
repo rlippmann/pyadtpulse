@@ -258,7 +258,7 @@ class PyADTPulseAsync:
                     LOG.debug("%s: Skipping relogin because not connected", task_name)
                     continue
                 elif should_relogin(relogin_interval):
-                    self._pulse_connection.quick_logout()
+                    await self._pulse_connection.quick_logout()
                     try:
                         await self._login_looped(task_name)
                     except (PulseAuthenticationError, PulseMFARequiredError) as ex:
@@ -429,7 +429,7 @@ class PyADTPulseAsync:
                         "Pulse update failed in task %s due to not logged in, relogging in...",
                         task_name,
                     )
-                    self._pulse_connection.quick_logout()
+                    await self._pulse_connection.quick_logout()
                     await self._login_looped(task_name)
                     return
                 if not success:
@@ -452,7 +452,7 @@ class PyADTPulseAsync:
                     )
 
         async def shutdown_task(ex: Exception):
-            self._pulse_connection.quick_logout()
+            await self._pulse_connection.quick_logout()
             await self._cancel_task(self._timeout_task)
             self._set_update_exception(ex)
 
@@ -509,7 +509,7 @@ class PyADTPulseAsync:
                         have_updates = check_sync_check_response()
                 except PulseNotLoggedInError:
                     LOG.info("Pulse sync check indicates logged out, re-logging in....")
-                    self._pulse_connection.quick_logout()
+                    await self._pulse_connection.quick_logout()
                     await self._login_looped(task_name)
                 except (
                     PulseAuthenticationError,
@@ -557,7 +557,7 @@ class PyADTPulseAsync:
         await self._pulse_connection.async_fetch_version()
         soup = await self._pulse_connection.async_do_login_query()
         if soup is None:
-            self._pulse_connection.quick_logout()
+            await self._pulse_connection.quick_logout()
             ex = PulseNotLoggedInError()
             self.sync_check_exception = ex
             raise ex
@@ -571,7 +571,7 @@ class PyADTPulseAsync:
             await self._update_sites(soup)
         if self._site is None:
             LOG.error("Could not retrieve any sites, login failed")
-            self._pulse_connection.quick_logout()
+            await self._pulse_connection.quick_logout()
             ex = PulseNotLoggedInError()
             self.sync_check_exception = ex
             raise ex

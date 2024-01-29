@@ -229,7 +229,10 @@ class PulseConnectionProperties:
         with self._pci_attribute_lock:
             return f"{self._api_host}{API_PREFIX}{self._api_version}{uri}"
 
-    def clear_session(self):
+    async def clear_session(self):
         """Clear the session."""
         with self._pci_attribute_lock:
+            old_session = self._session
             self._session = None
+            if old_session:
+                await old_session.close()

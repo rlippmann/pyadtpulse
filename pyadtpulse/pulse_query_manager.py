@@ -1,7 +1,7 @@
 """Pulse Query Manager."""
 
 from logging import getLogger
-from asyncio import TimeoutError, wait_for
+from asyncio import wait_for
 from datetime import datetime
 from http import HTTPStatus
 from time import time

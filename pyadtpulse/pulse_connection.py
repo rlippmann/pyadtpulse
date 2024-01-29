@@ -193,7 +193,7 @@ class PulseConnection(PulseQueryManager):
 
         if self.login_in_progress:
             return None
-        self.quick_logout()
+        await self.quick_logout()
         # just raise exceptions if we're not going to be able to log in
         lockout_time = self._login_backoff.expiration_time
         if lockout_time > time():
@@ -296,14 +296,14 @@ class PulseConnection(PulseQueryManager):
         with self._pc_attribute_lock:
             self._login_in_progress = value
 
-    def quick_logout(self) -> None:
+    async def quick_logout(self) -> None:
         """Quickly logout.
 
         This just resets the authenticated flag and clears the ClientSession.
         """
         LOG.debug("Resetting session")
         self._connection_status.authenticated_flag.clear()
-        self._connection_properties.clear_session()
+        await self._connection_properties.clear_session()
 
     @property
     def detailed_debug_logging(self) -> bool:
