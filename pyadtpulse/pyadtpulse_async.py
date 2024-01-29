@@ -501,10 +501,10 @@ class PyADTPulseAsync:
                 if response_text is None:
                     LOG.warning("Sync check received no response from ADT Pulse site")
                     continue
-                no_more_updates = False
+                more_updates = True
                 try:
                     if have_updates:
-                        no_more_updates = check_sync_check_response()
+                        more_updates = check_sync_check_response()
                     else:
                         have_updates = check_sync_check_response()
                 except PulseNotLoggedInError:
@@ -523,7 +523,7 @@ class PyADTPulseAsync:
                     )
                     await shutdown_task(ex)
                     return
-                if have_updates and not no_more_updates:
+                if have_updates and more_updates:
                     LOG.debug("Updates exist: %s, requerying", response_text)
                     continue
                 await handle_no_updates_exist()
