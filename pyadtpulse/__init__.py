@@ -6,7 +6,6 @@ import time
 from threading import RLock, Thread
 
 import uvloop
-from aiohttp import ClientSession
 
 from .const import (
     ADT_DEFAULT_HTTP_USER_AGENT,

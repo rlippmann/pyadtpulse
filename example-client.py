@@ -7,7 +7,7 @@ import asyncio
 import json
 import sys
 from pprint import pprint
-from time import sleep
+from time import sleep, time
 
 from pyadtpulse import PyADTPulse
 from pyadtpulse.const import (
@@ -19,9 +19,12 @@ from pyadtpulse.const import (
 )
 from pyadtpulse.exceptions import (
     PulseAuthenticationError,
+    PulseClientConnectionError,
     PulseConnectionError,
     PulseGatewayOfflineError,
     PulseLoginException,
+    PulseServerConnectionError,
+    PulseServiceTemporarilyUnavailableError,
 )
 from pyadtpulse.site import ADTPulseSite
 
@@ -391,23 +394,35 @@ def sync_example(
         relogin_interval (int): relogin interval in minutes
         detailed_debug_logging (bool): True to enable detailed debug logging
     """
-    try:
-        adt = PyADTPulse(
-            username,
-            password,
-            fingerprint,
-            debug_locks=debug_locks,
-            keepalive_interval=keepalive_interval,
-            relogin_interval=relogin_interval,
-            detailed_debug_logging=detailed_debug_logging,
-        )
-    except PulseLoginException as ex:
-        print("Error connecting to ADT Pulse site: %s", ex.args[0])
-        sys.exit()
-    except BaseException as e:
-        print("Received exception logging into ADT Pulse site")
-        print(str(e))
-        sys.exit()
+    while True:
+        try:
+            adt = PyADTPulse(
+                username,
+                password,
+                fingerprint,
+                debug_locks=debug_locks,
+                keepalive_interval=keepalive_interval,
+                relogin_interval=relogin_interval,
+                detailed_debug_logging=detailed_debug_logging,
+            )
+            break
+        except PulseLoginException as e:
+            print(f"ADT Pulse login failed with authentication error: {e}")
+            return
+        except (PulseClientConnectionError, PulseServerConnectionError) as e:
+            backoff_interval = e.backoff.get_current_backoff_interval()
+            print(
+                f"ADT Pulse login failed with connection error: {e}, retrying in {backoff_interval} seconds"
+            )
+            sleep(backoff_interval)
+            continue
+        except PulseServiceTemporarilyUnavailableError as e:
+            backoff_interval = e.backoff.expiration_time - time()
+            print(
+                f"ADT Pulse login failed with service unavailable error: {e}, retrying in {backoff_interval} seconds"
+            )
+            sleep(backoff_interval)
+            continue
 
     if not adt.is_connected:
         print("Error: Could not log into ADT Pulse site")
@@ -622,11 +637,27 @@ async def async_example(
         detailed_debug_logging=detailed_debug_logging,
     )
 
-    try:
-        await adt.async_login()
-    except Exception as e:
-        print("ADT Pulse login failed with error: %s", e)
-        return
+    while True:
+        try:
+            await adt.async_login()
+            break
+        except PulseLoginException as e:
+            print(f"ADT Pulse login failed with authentication error: {e}")
+            return
+        except (PulseClientConnectionError, PulseServerConnectionError) as e:
+            backoff_interval = e.backoff.get_current_backoff_interval()
+            print(
+                f"ADT Pulse login failed with connection error: {e}, retrying in {backoff_interval} seconds"
+            )
+            await asyncio.sleep(backoff_interval)
+            continue
+        except PulseServiceTemporarilyUnavailableError as e:
+            backoff_interval = e.backoff.expiration_time - time()
+            print(
+                f"ADT Pulse login failed with service unavailable error: {e}, retrying in {backoff_interval} seconds"
+            )
+            await asyncio.sleep(backoff_interval)
+            continue
 
     if not adt.is_connected:
         print("Error: could not log into ADT Pulse site")
@@ -661,11 +692,15 @@ async def async_example(
             pprint(adt.site.zones, compact=True)
             try:
                 await adt.wait_for_update()
-            except PulseGatewayOfflineError:
-                print("ADT Pulse gateway is offline, re-polling")
+            except PulseGatewayOfflineError as ex:
+                print(
+                    f"ADT Pulse gateway is offline, re-polling in {ex.backoff.get_current_backoff_interval()}"
+                )
                 continue
-            except PulseConnectionError as ex:
-                print("ADT Pulse connection error: %s, re-polling", ex.args[0])
+            except (PulseClientConnectionError, PulseServerConnectionError) as ex:
+                print(
+                    f"ADT Pulse connection error: {ex.args[0]}, re-polling in {ex.backoff.get_current_backoff_interval()}"
+                )
                 continue
             except PulseAuthenticationError as ex:
                 print("ADT Pulse authentication error: %s, exiting...", ex.args[0])
