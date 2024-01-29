@@ -4,6 +4,7 @@ import logging
 import asyncio
 import time
 from threading import RLock, Thread
+from warnings import warn
 
 import uvloop
 
@@ -39,6 +40,11 @@ class PyADTPulse(PyADTPulseAsync):
     ):
         self._p_attribute_lock = set_debug_lock(
             debug_locks, "pyadtpulse._p_attribute_lockattribute_lock"
+        )
+        warn(
+            "PyADTPulse is deprecated, please use PyADTPulseAsync instead",
+            DeprecationWarning,
+            stacklevel=2,
         )
         super().__init__(
             username,
