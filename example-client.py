@@ -447,28 +447,33 @@ def sync_example(
         test_alarm(adt.site, adt)
 
     done = False
+    have_exception = False
     while not done:
         try:
-            print_site(adt.site)
-            print("----")
-            if not adt.site.zones:
-                print("Error, no zones exist, exiting...")
-                done = True
-                break
+            if not have_exception:
+                print_site(adt.site)
+                print("----")
+                if not adt.site.zones:
+                    print("Error, no zones exist, exiting...")
+                    done = True
+                    break
             have_updates = False
             try:
                 have_updates = adt.updates_exist
+                have_exception = False
             except PulseGatewayOfflineError:
                 print("ADT Pulse gateway is offline, re-polling")
+                have_exception = True
                 continue
             except PulseConnectionError as ex:
                 print("ADT Pulse connection error: %s, re-polling", ex.args[0])
+                have_exception = True
                 continue
             except PulseAuthenticationError as ex:
                 print("ADT Pulse authentication error: %s, exiting...", ex.args[0])
                 done = True
                 break
-            if have_updates:
+            if have_updates and not have_exception:
                 print("Updates exist, refreshing")
                 # Don't need to explicitly call update() anymore
                 # Background thread will already have updated
@@ -679,28 +684,33 @@ async def async_example(
         await async_test_alarm(adt)
 
     done = False
+    have_exception = False
     while not done:
         try:
-            print(f"Gateway online: {adt.site.gateway.is_online}")
-            print_site(adt.site)
-            print("----")
-            if not adt.site.zones:
-                print("No zones exist, exiting...")
-                done = True
-                break
-            print("\nZones:")
-            pprint(adt.site.zones, compact=True)
+            if not have_exception:
+                print(f"Gateway online: {adt.site.gateway.is_online}")
+                print_site(adt.site)
+                print("----")
+                if not adt.site.zones:
+                    print("No zones exist, exiting...")
+                    done = True
+                    break
+                print("\nZones:")
+                pprint(adt.site.zones, compact=True)
             try:
                 await adt.wait_for_update()
+                have_exception = False
             except PulseGatewayOfflineError as ex:
                 print(
                     f"ADT Pulse gateway is offline, re-polling in {ex.backoff.get_current_backoff_interval()}"
                 )
+                have_exception = True
                 continue
             except (PulseClientConnectionError, PulseServerConnectionError) as ex:
                 print(
                     f"ADT Pulse connection error: {ex.args[0]}, re-polling in {ex.backoff.get_current_backoff_interval()}"
                 )
+                have_exception = True
                 continue
             except PulseAuthenticationError as ex:
                 print("ADT Pulse authentication error: %s, exiting...", ex.args[0])
