@@ -458,7 +458,9 @@ class PyADTPulseAsync:
 
         while True:
             try:
-                await self.site.gateway.backoff.wait_for_backoff()
+                if not have_updates:
+                    # gateway going back online will trigger a sync check of 1-0-0
+                    await self.site.gateway.backoff.wait_for_backoff()
                 pi = (
                     self.site.gateway.poll_interval
                     if not have_updates or not self.site.gateway.backoff.will_backoff()
