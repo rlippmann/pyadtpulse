@@ -308,7 +308,7 @@ class PulseQueryManager:
                             self._get_http_status_description(return_value[0]),
                             retry,
                         )
-                        if retry == max_retries:
+                        if max_retries > 1 and retry == max_retries:
                             LOG.debug(
                                 "Exceeded max retries of %d, giving up", max_retries
                             )

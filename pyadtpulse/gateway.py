@@ -93,9 +93,14 @@ class ADTPulseGateway:
                 self._status_text = "OFFLINE"
 
             LOG.info(
-                "ADT Pulse gateway %s, poll interval=%f",
+                "ADT Pulse gateway %s",
                 self._status_text,
-                self.backoff.get_current_backoff_interval(),
+            )
+            LOG.debug(
+                "Gateway poll interval: %d",
+                self.backoff.initial_backoff_interval
+                if self._status_text == "ONLINE"
+                else self.backoff.get_current_backoff_interval(),
             )
 
     @property
