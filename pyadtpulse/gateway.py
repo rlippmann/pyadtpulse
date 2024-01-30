@@ -98,9 +98,11 @@ class ADTPulseGateway:
             )
             LOG.debug(
                 "Gateway poll interval: %d",
-                self.backoff.initial_backoff_interval
-                if self._status_text == "ONLINE"
-                else self.backoff.get_current_backoff_interval(),
+                (
+                    self.backoff.initial_backoff_interval
+                    if self._status_text == "ONLINE"
+                    else self.backoff.get_current_backoff_interval()
+                ),
             )
 
     @property
