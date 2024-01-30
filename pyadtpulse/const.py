@@ -1,6 +1,6 @@
 """Constants for pyadtpulse."""
 
-__version__ = "1.2.0b2"
+__version__ = "1.2.0b3"
 
 
 DEFAULT_API_HOST = "https://portal.adtpulse.com"
