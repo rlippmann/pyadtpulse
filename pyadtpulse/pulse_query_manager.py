@@ -343,7 +343,7 @@ class PulseQueryManager:
                 if retry == max_retries:
                     LOG.debug("Exceeded max retries of %d, giving up", max_retries)
                     raise PulseServerConnectionError(
-                        f"Exceeded max retries of {max_retries}, giving up",
+                        "Timeout error",
                         self._connection_status.get_backoff(),
                     ) from ex
                 query_backoff.increment_backoff()
