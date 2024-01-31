@@ -1,3 +1,11 @@
+## 1.2.0 (2024-01-30)
+
+* add exceptions and exception handling
+* make code more robust for error handling
+* refactor code into smaller objects
+* add testing framework
+* add poetry
+
 ## 1.1.3 (2023-10-11)
 
 * revert sync check logic to check against last check value.  this should hopefully fix the problem of HA alarm status not updating
