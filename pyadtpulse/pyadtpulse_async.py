@@ -458,15 +458,13 @@ class PyADTPulseAsync:
 
         while True:
             try:
-                if not have_updates:
+                if not have_updates and not self.site.gateway.is_online:
                     # gateway going back online will trigger a sync check of 1-0-0
                     await self.site.gateway.backoff.wait_for_backoff()
-                pi = (
-                    self.site.gateway.poll_interval
-                    if not have_updates or not self.site.gateway.backoff.will_backoff()
-                    else 0.0
-                )
-                await asyncio.sleep(pi)
+                else:
+                    await asyncio.sleep(
+                        self.site.gateway.poll_interval if not have_updates else 0.0
+                    )
 
                 try:
                     code, response_text, url = await perform_sync_check_query()
