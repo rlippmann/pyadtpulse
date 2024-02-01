@@ -87,7 +87,7 @@ class ADTPulseGateway:
         with self._attribute_lock:
             if status == self.is_online:
                 return
-
+            old_status = self._status_text
             self._status_text = "ONLINE"
             if not status:
                 self._status_text = "OFFLINE"
@@ -96,6 +96,8 @@ class ADTPulseGateway:
                 "ADT Pulse gateway %s",
                 self._status_text,
             )
+            if old_status == "OFFLINE":
+                self.backoff.reset_backoff()
             LOG.debug(
                 "Gateway poll interval: %d",
                 (
