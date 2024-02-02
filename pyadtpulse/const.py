@@ -2,7 +2,6 @@
 
 __version__ = "1.2.0"
 
-
 DEFAULT_API_HOST = "https://portal.adtpulse.com"
 API_HOST_CA = "https://portal-ca.adtpulse.com"  # Canada
 
