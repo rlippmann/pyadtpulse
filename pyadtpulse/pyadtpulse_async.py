@@ -138,12 +138,21 @@ class PyADTPulseAsync:
 
     async def _update_sites(self, soup: BeautifulSoup) -> None:
         with self._pa_attribute_lock:
+            start_time = 0.0
+            if self._pulse_connection.detailed_debug_logging:
+                start_time = time.time()
             if self._site is None:
                 await self._initialize_sites(soup)
                 if self._site is None:
                     raise RuntimeError("pyadtpulse could not retrieve site")
             self._site.alarm_control_panel.update_alarm_from_soup(soup)
             self._site.update_zone_from_soup(soup)
+            if self._pulse_connection.detailed_debug_logging:
+                LOG.debug(
+                    "Updated site %s in %s seconds",
+                    self._site.id,
+                    time.time() - start_time,
+                )
 
     async def _initialize_sites(self, soup: BeautifulSoup) -> None:
         """
@@ -159,7 +168,9 @@ class PyADTPulseAsync:
         single_premise = soup.find("span", {"id": "p_singlePremise"})
         if single_premise:
             site_name = single_premise.text
-
+            start_time = 0.0
+            if self._pulse_connection.detailed_debug_logging:
+                start_time = time.time()
             # FIXME: this code works, but it doesn't pass the linter
             signout_link = str(
                 soup.find("a", {"class": "p_signoutlink"}).get("href")  # type: ignore
@@ -180,6 +191,12 @@ class PyADTPulseAsync:
                         new_site.gateway.is_online = False
                     new_site.update_zone_from_soup(soup)
                     self._site = new_site
+                    if self._pulse_connection.detailed_debug_logging:
+                        LOG.debug(
+                            "Initialized site %s in %s seconds",
+                            self._site.id,
+                            time.time() - start_time,
+                        )
                     return
             else:
                 LOG.warning(
