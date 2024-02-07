@@ -61,6 +61,7 @@ class PyADTPulseAsync:
         "_site",
         "_detailed_debug_logging",
         "_sync_check_exception",
+        "_sync_check_sleeping",
     )
 
     @typechecked
@@ -129,6 +130,7 @@ class PyADTPulseAsync:
         pc_backoff = self._pulse_connection.get_login_backoff()
         self._sync_check_exception: Exception | None = PulseNotLoggedInError()
         pc_backoff.reset_backoff()
+        self._sync_check_sleeping = asyncio.Event()
 
     def __repr__(self) -> str:
         """Object representation."""
@@ -279,6 +281,15 @@ class PyADTPulseAsync:
                     msg = "quick"
                     if time.time() > next_full_logout_time:
                         msg = "full"
+                    with self._pa_attribute_lock:
+                        if self._sync_task:
+                            if self._detailed_debug_logging:
+                                LOG.debug(
+                                    "%s: waiting for sync check task to sleep",
+                                    task_name,
+                                )
+                            await self._sync_check_sleeping.wait()
+                    if msg == "full":
                         next_full_logout_time = time.time() + 24 * 60 * 60
                         await self.async_logout()
                     else:
@@ -483,6 +494,7 @@ class PyADTPulseAsync:
 
         while True:
             try:
+                self._sync_check_sleeping.set()
                 if not have_updates and not self.site.gateway.is_online:
                     # gateway going back online will trigger a sync check of 1-0-0
                     await self.site.gateway.backoff.wait_for_backoff()
@@ -490,7 +502,7 @@ class PyADTPulseAsync:
                     await asyncio.sleep(
                         self.site.gateway.poll_interval if not have_updates else 0.0
                     )
-
+                self._sync_check_sleeping.clear()
                 try:
                     code, response_text, url = await perform_sync_check_query()
                 except (
