@@ -1,3 +1,7 @@
+## 1.2.2 (2024-02-07)
+
+* add yarl as dependency
+
 ## 1.2.1 (2024-02-07)
 
 * add timing loggin for zone/site updates
