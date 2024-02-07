@@ -258,6 +258,7 @@ class PyADTPulseAsync:
                 > randint(int(0.75 * relogin_interval), relogin_interval)
             )
 
+        next_full_logout_time = time.time() + 24 * 60 * 60
         response: str | None
         task_name: str = self._get_task_name(self._timeout_task, KEEPALIVE_TASK_NAME)
         LOG.debug("creating %s", task_name)
@@ -275,7 +276,14 @@ class PyADTPulseAsync:
                     LOG.debug("%s: Skipping relogin because not connected", task_name)
                     continue
                 elif should_relogin(relogin_interval):
-                    await self._pulse_connection.quick_logout()
+                    msg = "quick"
+                    if time.time() > next_full_logout_time:
+                        msg = "full"
+                        next_full_logout_time = time.time() + 24 * 60 * 60
+                        await self.async_logout()
+                    else:
+                        await self._pulse_connection.quick_logout()
+                    LOG.debug("%s: performing %s logout", task_name, msg)
                     try:
                         await self._login_looped(task_name)
                     except (PulseAuthenticationError, PulseMFARequiredError) as ex:
