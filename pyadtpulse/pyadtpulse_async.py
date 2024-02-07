@@ -275,7 +275,7 @@ class PyADTPulseAsync:
                 if not self._pulse_connection.is_connected:
                     LOG.debug("%s: Skipping relogin because not connected", task_name)
                     continue
-                elif should_relogin(relogin_interval):
+                if should_relogin(relogin_interval):
                     msg = "quick"
                     if time.time() > next_full_logout_time:
                         msg = "full"
