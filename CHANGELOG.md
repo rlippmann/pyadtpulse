@@ -1,3 +1,7 @@
+## 1.2.4 (2024-02-08)
+
+* change yarl dependencies
+
 ## 1.2.3 (2024-02-08)
 
 * change aiohttp dependencies
