@@ -139,7 +139,7 @@ class PyADTPulseAsync:
             f"<{self.__class__.__name__}: {self._authentication_properties.username}>"
         )
 
-    async def _update_sites(self, tree: html.HtmlElement) -> None:
+    async def _update_site(self, tree: html.HtmlElement) -> None:
         with self._pa_attribute_lock:
             start_time = 0.0
             if self._pulse_connection.detailed_debug_logging:
@@ -605,7 +605,7 @@ class PyADTPulseAsync:
         if self._timeout_task is not None:
             return
         if not self._site:
-            await self._update_sites(tree)
+            await self._update_site(tree)
         if self._site is None:
             LOG.error("Could not retrieve any sites, login failed")
             await self._pulse_connection.quick_logout()
@@ -652,7 +652,7 @@ class PyADTPulseAsync:
             logging.INFO, "Error returned from ADT Pulse service check"
         )
         if tree is not None:
-            await self._update_sites(tree)
+            await self._update_site(tree)
             return True
 
         return False
