@@ -122,8 +122,8 @@ class PulseConnection(PulseQueryManager):
             url = self._connection_properties.make_url(ADT_LOGIN_URI)
             if url == response_url_string:
                 error = tree.find(".//div[@id='warnMsgContents']")
-                if error:
-                    error_text = error.text
+                if error is not None:
+                    error_text = error.text_content()
                     LOG.error("Error logging into pulse: %s", error_text)
                     if "Try again in" in error_text:
                         if (retry_after := extract_seconds_from_string(error_text)) > 0:
@@ -136,6 +136,7 @@ class PulseConnection(PulseQueryManager):
                     elif "Sign In Unsuccessful" in error_text:
                         raise PulseAuthenticationError()
                 else:
+                    LOG.error("Unknown error logging into pulse: no message given")
                     raise PulseNotLoggedInError()
             else:
                 url = self._connection_properties.make_url(ADT_MFA_FAIL_URI)
@@ -160,6 +161,12 @@ class PulseConnection(PulseQueryManager):
         response_url_string = str(response[2])
         if url != response_url_string:
             determine_error_type()
+            # if we get here we can't determine the error
+            # raise a generic authentication error
+            LOG.error(
+                "Login received unexpected response from login query: %s",
+                response_url_string,
+            )
             raise PulseAuthenticationError()
         return tree
 
