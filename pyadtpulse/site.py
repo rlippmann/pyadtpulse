@@ -30,7 +30,7 @@ SECURITY_PANEL_NAME = "Security Panel"
 class ADTPulseSite(ADTPulseSiteProperties):
     """Represents an individual ADT Pulse site."""
 
-    __slots__ = ("_pulse_connection",)
+    __slots__ = ("_pulse_connection", "_trouble_zones", "_tripped_zones")
 
     @typechecked
     def __init__(self, pulse_connection: PulseConnection, site_id: str, name: str):
@@ -43,6 +43,8 @@ class ADTPulseSite(ADTPulseSiteProperties):
         """
         self._pulse_connection = pulse_connection
         super().__init__(site_id, name, pulse_connection.debug_locks)
+        self._trouble_zones: set[int] | None = None
+        self._tripped_zones: set[int] = set()
 
     @typechecked
     def arm_home(self, force_arm: bool = False) -> bool:
@@ -371,13 +373,19 @@ class ADTPulseSite(ADTPulseSiteProperties):
 
         def get_zone_status(zone_row: html.HtmlElement, zone: int) -> str:
             try:
-                status = remove_prefix(
-                    zone_row.find(".//span[@class='devStatIcon']").get("title"),
-                    "Status:",
-                )
-            except (AttributeError, ValueError):
+                status = row.find(".//td[@class='p_listRow']").getnext().text_content()
+                status = status.replace("\xa0", "")
+                if status.startswith("Trouble"):
+                    trouble_code = status.split()
+                    if len(trouble_code) > 1:
+                        status = " ".join(trouble_code[1:])
+                    else:
+                        status = "Unknown trouble code"
+                else:
+                    status = "Online"
+            except (ValueError, AttributeError):
                 LOG.debug(
-                    "Unable to set status for zone %d due to malformed html", zone
+                    "Unable to set status for zone %s because html malformed", zone
                 )
                 status = "Unknown"
             return status
@@ -440,9 +448,48 @@ class ADTPulseSite(ADTPulseSiteProperties):
 
             except (AttributeError, ValueError):
                 LOG.error("Failed to retrieve alarm status from orb!")
+            first_pass = False
 
-            for row in tree.findall(".//tr[@class='p_listRow']"):
-                update_zone_from_row(row.find(".//div[@class='p_grayNormalText']"))
+            if self._trouble_zones is None:
+                first_pass = True
+                self._trouble_zones = set()
+            new_tripped_zones: set[int] = self._tripped_zones.copy()
+            new_trouble_zones: set[int] = self._trouble_zones.copy()
+            base_xpath_query = "..//tr[@class='p_listRow']"
+            for zone_id in self._trouble_zones:
+                xpath_query = (
+                    f"{base_xpath_query}[normalize-space() = 'Zone {zone_id}']"
+                )
+                zone_row = tree.find(xpath_query)
+                if zone_row is None:
+                    LOG.warning("Unable to find zone %d in html", zone_id)
+                    continue
+                if get_zone_status(zone_row, zone_id) == "Trouble":
+                    continue
+                update_zone_from_row(zone_row)
+                new_trouble_zones.discard(zone_id)
+                if get_zone_state(zone_row, zone_id) != "OK":
+                    new_tripped_zones.add(zone_id)
+            self._trouble_zones = new_trouble_zones
+            for zone_id in self._tripped_zones:
+                xpath_query = (
+                    f"{base_xpath_query}[normalize-space() = 'Zone {zone_id}']"
+                )
+                zone_row = tree.find(xpath_query)
+                if zone_row is None:
+                    LOG.warning("Unable to find zone %d in html", zone_id)
+                    continue
+                if get_zone_state(zone_row, zone_id) != "OK":
+                    continue
+                if get_zone_status(zone_row, zone_id) == "Trouble":
+                    update_zone_from_row(zone_row)
+                    new_trouble_zones.add(zone_id)
+                if get_zone_state(zone_row, zone_id) == "OK":
+                    new_tripped_zones.discard(zone_id)
+            self._tripped_zones = new_tripped_zones
+            if first_pass:
+                for row in tree.findall(base_xpath_query):
+                    update_zone_from_row(row.find(".//div[@class='p_grayNormalText']"))
                 # v26 and lower: temp = row.find("span", {"class": "p_grayNormalText"})
 
             self._last_updated = int(time())
