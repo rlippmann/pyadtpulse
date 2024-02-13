@@ -328,6 +328,102 @@ class ADTPulseSite(ADTPulseSiteProperties):
         Raises:
             PulseGatewayOffline: If the gateway is offline.
         """
+
+        def get_zone_id(zone_row: html.HtmlElement) -> int | None:
+            try:
+                zone = int(
+                    remove_prefix(
+                        zone_row.text_content(),
+                        "Zone",
+                    )
+                )
+            except ValueError:
+                LOG.debug("skipping row due to zone not being an integer")
+                return None
+            return zone
+
+        def get_zone_last_update(zone_row: html.HtmlElement, zone: int) -> datetime:
+            try:
+                last_update = parse_pulse_datetime(
+                    remove_prefix(
+                        zone_row.find(".//span[@class='devStatIcon']").get("title"),
+                        "Last Event:",
+                    )
+                )
+            except (AttributeError, ValueError):
+                LOG.debug(
+                    "Unable to set last event time for zone %d due to malformed html",
+                    zone,
+                )
+                last_update = datetime(1970, 1, 1)
+            return last_update
+
+        def get_zone_state(zone_row: html.HtmlElement, zone: int) -> str | None:
+            try:
+                state = remove_prefix(
+                    zone_row.find(".//canvas[@class='p_ic_icon_device']").get("icon"),
+                    "devStat",
+                )
+            except (AttributeError, ValueError):
+                LOG.debug("Unable to set state for zone %d due to malformed html", zone)
+                return None
+            return state
+
+        def get_zone_status(zone_row: html.HtmlElement, zone: int) -> str:
+            try:
+                status = remove_prefix(
+                    zone_row.find(".//span[@class='devStatIcon']").get("title"),
+                    "Status:",
+                )
+            except (AttributeError, ValueError):
+                LOG.debug(
+                    "Unable to set status for zone %d due to malformed html", zone
+                )
+                status = "Unknown"
+            return status
+
+        def update_zone_from_row(row_to_update: html.HtmlElement | None) -> bool:
+            if row_to_update is None:
+                return False
+            zone = get_zone_id(row_to_update)
+            if zone is None:
+                return False
+            # parse out last activity (required dealing with "Yesterday 1:52 PM")
+
+            last_update = get_zone_last_update(row_to_update, zone)
+            # name = row.find("a", {"class": "p_deviceNameText"}).get_text()
+
+            state = get_zone_state(row_to_update, zone)
+            if state is None:
+                return False
+
+            status = get_zone_status(row_to_update, zone)
+
+            # id:    [integer]
+            # name:  device name
+            # tags:  sensor,[doorWindow,motion,glass,co,fire]
+            # timestamp: timestamp of last activity
+            # state: OK (device okay)
+            #        Open (door/window opened)
+            #        Motion (detected motion)
+            #        Tamper (glass broken or device tamper)
+            #        Alarm (detected CO/Smoke)
+            #        Unknown (device offline)
+
+            # update device state from ORB info
+            if not self._zones:
+                LOG.warning("No zones exist")
+                return False
+            self._zones.update_device_info(zone, state, status, last_update)
+            LOG.debug(
+                "Set zone %d - to %s, status %s with timestamp %s",
+                zone,
+                state,
+                status,
+                last_update,
+            )
+            return True
+
         start_time = 0.0
         if self._pulse_connection.detailed_debug_logging:
             start_time = time()
@@ -346,93 +442,8 @@ class ADTPulseSite(ADTPulseSiteProperties):
                 LOG.error("Failed to retrieve alarm status from orb!")
 
             for row in tree.findall(".//tr[@class='p_listRow']"):
-                temp = row.find(".//div[@class='p_grayNormalText']")
+                update_zone_from_row(row.find(".//div[@class='p_grayNormalText']"))
                 # v26 and lower: temp = row.find("span", {"class": "p_grayNormalText"})
-                if temp is None:
-                    break
-                try:
-                    zone = int(
-                        remove_prefix(
-                            temp.text_content(),
-                            "Zone",
-                        )
-                    )
-                except ValueError:
-                    LOG.debug("skipping row due to zone not being an integer")
-                    continue
-                # parse out last activity (required dealing with "Yesterday 1:52 PM")
-
-                try:
-                    last_udate_time_string = row.find(
-                        ".//span[@class='devStatIcon']"
-                    ).get("title")
-                    last_update = parse_pulse_datetime(
-                        remove_prefix(last_udate_time_string, "Last Event:")
-                        .lstrip()
-                        .rstrip()
-                    )
-                except (AttributeError, ValueError):
-                    LOG.debug(
-                        "Unable to set last event time for zone %s due to malformed html",
-                        zone,
-                    )
-                    last_update = datetime(1970, 1, 1)
-
-                # name = row.find("a", {"class": "p_deviceNameText"}).get_text()
-
-                try:
-                    state = remove_prefix(
-                        row.find(".//canvas[@class='p_ic_icon_device']").get("icon"),
-                        "devStat",
-                    )
-                except (AttributeError, ValueError):
-                    LOG.debug(
-                        "Unable to set state for zone %s due to malformed html", zone
-                    )
-                    continue
-
-                try:
-                    status = (
-                        row.find(".//td[@class='p_listRow']").getnext().text_content()
-                    )
-                    status = status.replace("\xa0", "")
-                    if status.startswith("Trouble"):
-                        trouble_code = status.split()
-                        if len(trouble_code) > 1:
-                            status = " ".join(trouble_code[1:])
-                        else:
-                            status = "Unknown trouble code"
-                    else:
-                        status = "Online"
-                except (ValueError, AttributeError):
-                    LOG.debug(
-                        "Unable to set status for zone %s because html malformed", zone
-                    )
-                    status = "Unknown"
-
-                # id:    [integer]
-                # name:  device name
-                # tags:  sensor,[doorWindow,motion,glass,co,fire]
-                # timestamp: timestamp of last activity
-                # state: OK (device okay)
-                #        Open (door/window opened)
-                #        Motion (detected motion)
-                #        Tamper (glass broken or device tamper)
-                #        Alarm (detected CO/Smoke)
-                #        Unknown (device offline)
-
-                # update device state from ORB info
-                if not self._zones:
-                    LOG.warning("No zones exist")
-                    return None
-                self._zones.update_device_info(zone, state, status, last_update)
-                LOG.debug(
-                    "Set zone %d - to %s, status %s with timestamp %s",
-                    zone,
-                    state,
-                    status,
-                    last_update,
-                )
 
             self._last_updated = int(time())
 
