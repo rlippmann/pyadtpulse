@@ -630,7 +630,11 @@ class PyADTPulseAsync:
             self._set_update_exception(PulseNotLoggedInError())
             await self._cancel_task(self._timeout_task)
             await self._cancel_task(self._sync_task)
-        await self._pulse_connection.async_do_logout_query(self.site.id)
+        try:
+            site_id = self.site.id
+        except ValueError:
+            site_id = None
+        await self._pulse_connection.async_do_logout_query(site_id)
 
     async def async_update(self) -> bool:
         """Update ADT Pulse data.
