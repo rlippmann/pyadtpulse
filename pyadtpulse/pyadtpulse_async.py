@@ -528,7 +528,7 @@ class PyADTPulseAsync:
                         status = "temporarily unavailable"
                     else:
                         status = "not logged in"
-                    LOG.warning("Pulse service %s, ending %s task", status, task_name)
+                    LOG.error("Pulse service %s, ending %s task", status, task_name)
                     await shutdown_task(e)
                     return
                 if not handle_response(
