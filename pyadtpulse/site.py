@@ -342,7 +342,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
                     )
                 )
             except AttributeError:
-                LOG.debug("skipping row due to zone html being malformed")
+                LOG.debug("skipping row due to no zone id")
                 return None
             except ValueError:
                 LOG.debug("skipping row due to zone not being an integer")
@@ -449,8 +449,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
                 self._trouble_zones = set()
             original_non_default_zones = self._trouble_zones | self._tripped_zones
             # v26 and lower: temp = row.find("span", {"class": "p_grayNormalText"})
-            base_xpath_query = ".//tr[@class='p_listRow']"
-            for row in tree.findall(base_xpath_query):
+            for row in tree.findall(".//tr[@class='p_listRow']"):
                 zone_id = get_zone_id(row)
                 if not zone_id:
                     continue
@@ -476,24 +475,14 @@ class ADTPulseSite(ADTPulseSiteProperties):
                 if first_pass:
                     update_zone_from_row(zone_id, state, status, last_update)
                     continue
-                break
-            if not first_pass:
-                updated_zones = original_non_default_zones - (
-                    self._tripped_zones | self._trouble_zones
-                )
-                if updated_zones:
-                    or_conditions = " or ".join(
-                        f"normalize-space() = 'Zone {zone}'" for zone in updated_zones
-                    )
-                    xpath_query = f"{base_xpath_query}[{or_conditions}]"
-                    for row in tree.findall(xpath_query):
-                        zone_id = get_zone_id(row)
-                        if not zone_id:
-                            continue
-                        status = get_zone_status(row, zone_id)
-                        state = get_zone_state(row, zone_id)
-                        last_update = get_zone_last_update(row, zone_id)
-                        update_zone_from_row(zone_id, state, status, last_update)
+                if not original_non_default_zones:
+                    break
+                if zone_id in original_non_default_zones:
+                    update_zone_from_row(zone_id, state, status, last_update)
+                    original_non_default_zones.remove(zone_id)
+                    if not original_non_default_zones:
+                        break
+                    continue
 
             self._last_updated = int(time())
 
