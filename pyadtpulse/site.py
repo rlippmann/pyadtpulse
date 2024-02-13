@@ -367,7 +367,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
                         ".//span[@class='devStatIcon']"
                     ).get("title")
                     last_update = parse_pulse_datetime(
-                        remove_prefix(last_udate_time_string, "Last Activity:")
+                        remove_prefix(last_udate_time_string, "Last Event:")
                         .lstrip()
                         .rstrip()
                     )
