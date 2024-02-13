@@ -7,7 +7,7 @@ import time
 from random import randint
 from warnings import warn
 
-from bs4 import BeautifulSoup
+from lxml import html
 from typeguard import typechecked
 from yarl import URL
 
@@ -139,17 +139,17 @@ class PyADTPulseAsync:
             f"<{self.__class__.__name__}: {self._authentication_properties.username}>"
         )
 
-    async def _update_sites(self, soup: BeautifulSoup) -> None:
+    async def _update_sites(self, tree: html.HtmlElement) -> None:
         with self._pa_attribute_lock:
             start_time = 0.0
             if self._pulse_connection.detailed_debug_logging:
                 start_time = time.time()
             if self._site is None:
-                await self._initialize_sites(soup)
+                await self._initialize_sites(tree)
                 if self._site is None:
                     raise RuntimeError("pyadtpulse could not retrieve site")
-            self._site.alarm_control_panel.update_alarm_from_soup(soup)
-            self._site.update_zone_from_soup(soup)
+            self._site.alarm_control_panel.update_alarm_from_etree(tree)
+            self._site.update_zone_from_etree(tree)
             if self._pulse_connection.detailed_debug_logging:
                 LOG.debug(
                     "Updated site %s in %s seconds",
@@ -157,27 +157,24 @@ class PyADTPulseAsync:
                     time.time() - start_time,
                 )
 
-    async def _initialize_sites(self, soup: BeautifulSoup) -> None:
+    async def _initialize_sites(self, tree: html.HtmlElement) -> None:
         """
         Initializes the sites in the ADT Pulse account.
 
         Args:
-            soup (BeautifulSoup): The parsed HTML soup object.
-
+            tree html.HtmlElement: the parsed response tree
         Raises:
             PulseGatewayOfflineError: if the gateway is offline
         """
         # typically, ADT Pulse accounts have only a single site (premise/location)
-        single_premise = soup.find("span", {"id": "p_singlePremise"})
-        if single_premise:
+        single_premise = tree.find(".//span[@id='p_singlePremise']")
+        if single_premise is not None:
             site_name = single_premise.text
             start_time = 0.0
             if self._pulse_connection.detailed_debug_logging:
                 start_time = time.time()
             # FIXME: this code works, but it doesn't pass the linter
-            signout_link = str(
-                soup.find("a", {"class": "p_signoutlink"}).get("href")  # type: ignore
-            )
+            signout_link = str(tree.find(".//a[@class='p_signoutlink']").get("href"))
             if signout_link:
                 m = re.search("networkid=(.+)&", signout_link)
                 if m and m.group(1) and m.group(1):
@@ -189,10 +186,10 @@ class PyADTPulseAsync:
                     # updated with _update_alarm_status
                     if not await new_site.fetch_devices(None):
                         LOG.error("Could not fetch zones from ADT site")
-                    new_site.alarm_control_panel.update_alarm_from_soup(soup)
+                    new_site.alarm_control_panel.update_alarm_from_etree(tree)
                     if new_site.alarm_control_panel.status == ADT_ALARM_UNKNOWN:
                         new_site.gateway.is_online = False
-                    new_site.update_zone_from_soup(soup)
+                    new_site.update_zone_from_etree(tree)
                     self._site = new_site
                     if self._pulse_connection.detailed_debug_logging:
                         LOG.debug(
@@ -595,8 +592,8 @@ class PyADTPulseAsync:
             self._authentication_properties.username,
         )
         await self._pulse_connection.async_fetch_version()
-        soup = await self._pulse_connection.async_do_login_query()
-        if soup is None:
+        tree = await self._pulse_connection.async_do_login_query()
+        if tree is None:
             await self._pulse_connection.quick_logout()
             ex = PulseNotLoggedInError()
             self.sync_check_exception = ex
@@ -608,7 +605,7 @@ class PyADTPulseAsync:
         if self._timeout_task is not None:
             return
         if not self._site:
-            await self._update_sites(soup)
+            await self._update_sites(tree)
         if self._site is None:
             LOG.error("Could not retrieve any sites, login failed")
             await self._pulse_connection.quick_logout()
@@ -647,11 +644,11 @@ class PyADTPulseAsync:
         LOG.debug("Checking ADT Pulse cloud service for updates")
 
         # FIXME will have to query other URIs for camera/zwave/etc
-        soup = await self._pulse_connection.query_orb(
+        tree = await self._pulse_connection.query_orb(
             logging.INFO, "Error returned from ADT Pulse service check"
         )
-        if soup is not None:
-            await self._update_sites(soup)
+        if tree is not None:
+            await self._update_sites(tree)
             return True
 
         return False

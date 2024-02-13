@@ -6,7 +6,7 @@ from asyncio import Task, create_task, gather, get_event_loop, run_coroutine_thr
 from datetime import datetime
 from time import time
 
-from bs4 import BeautifulSoup, ResultSet
+from lxml import html
 from typeguard import typechecked
 
 from .const import ADT_DEVICE_URI, ADT_GATEWAY_STRING, ADT_GATEWAY_URI, ADT_SYSTEM_URI
@@ -18,7 +18,7 @@ from .exceptions import (
 )
 from .pulse_connection import PulseConnection
 from .site_properties import ADTPulseSiteProperties
-from .util import make_soup, parse_pulse_datetime, remove_prefix
+from .util import make_etree, parse_pulse_datetime, remove_prefix
 from .zones import ADTPulseFlattendZone, ADTPulseZones
 
 LOG = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
         Returns:
             Optional[dict[str, str]]: A dictionary of attribute names and their
                 corresponding values,
-                or None if the device response soup is None.
+                or None if the device response lxml tree is None.
         """
         result: dict[str, str] = {}
         if device_id == ADT_GATEWAY_STRING:
@@ -112,31 +112,31 @@ class ADTPulseSite(ADTPulseSiteProperties):
             device_response = await self._pulse_connection.async_query(
                 ADT_DEVICE_URI, extra_params={"id": device_id}
             )
-        device_response_soup = make_soup(
+        device_response_etree = make_etree(
             device_response[0],
             device_response[1],
             device_response[2],
             logging.DEBUG,
             "Failed loading device attributes from ADT Pulse service",
         )
-        if device_response_soup is None:
+        if device_response_etree is None:
             return None
-        for dev_info_row in device_response_soup.find_all(
-            "td", {"class", "InputFieldDescriptionL"}
+        for dev_info_row in device_response_etree.findall(
+            ".//td[@class='InputFieldDescriptionL']"
         ):
             identity_text = (
-                str(dev_info_row.get_text())
+                str(dev_info_row.text_content())
                 .lower()
                 .strip()
                 .rstrip(":")
                 .replace(" ", "_")
                 .replace("/", "_")
             )
-            sibling = dev_info_row.find_next_sibling()
-            if not sibling:
+            sibling = dev_info_row.getnext()
+            if sibling is None:
                 value = "Unknown"
             else:
-                value = str(sibling.get_text()).strip()
+                value = str(sibling.text_content().strip())
             result.update({identity_text: value})
         return result
 
@@ -163,13 +163,13 @@ class ADTPulseSite(ADTPulseSiteProperties):
             LOG.debug("Zone %s is not an integer, skipping", device_id)
 
     @typechecked
-    async def fetch_devices(self, soup: BeautifulSoup | None) -> bool:
+    async def fetch_devices(self, tree: html.HtmlElement | None) -> bool:
         """
-        Fetches the devices from the given BeautifulSoup object and updates
+        Fetches the devices from the given lxml etree and updates
         the zone attributes.
 
         Args:
-            soup (Optional[BeautifulSoup]): The BeautifulSoup object containing
+            tree (Optional[html.HtmlElement]): The lxml etree containing
                 the devices.
 
         Returns:
@@ -180,17 +180,24 @@ class ADTPulseSite(ADTPulseSiteProperties):
         task_list: list[Task] = []
         zone_id: str | None = None
 
-        def add_zone_from_row(row_tds: ResultSet) -> str | None:
-            """Adds a zone from a bs4 row.
+        def add_zone_from_row(row_tds: list[html.HtmlElement]) -> str | None:
+            """Adds a zone from an HtmlElement row.
 
             Returns None if successful, otherwise the zone ID if present.
             """
             zone_id: str | None = None
             if row_tds and len(row_tds) > 4:
-                zone_name: str = row_tds[1].get_text().strip()
-                zone_id = row_tds[2].get_text().strip()
-                zone_type: str = row_tds[4].get_text().strip()
-                zone_status: str = row_tds[0].find("canvas").get("title").strip()
+                zone_name: str = row_tds[1].text_content().strip()
+                zone_id = row_tds[2].text_content().strip()
+                zone_type: str = row_tds[4].text_content().strip()
+                zone_status = "Unknown"
+                zs_temp = row_tds[0].find("canvas")
+                if (
+                    zs_temp is not None
+                    and zs_temp.get("title") is not None
+                    and zs_temp.get("title") != ""
+                ):
+                    zone_status = zs_temp.get("title")
                 if (
                     zone_id is not None
                     and zone_id.isdecimal()
@@ -202,7 +209,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
                             "name": zone_name,
                             "zone": zone_id,
                             "type_model": zone_type,
-                            "status": zone_status,
+                            "status": zone_status.strip(),
                         }
                     )
                     return None
@@ -224,25 +231,34 @@ class ADTPulseSite(ADTPulseSiteProperties):
             LOG.debug("Skipping %s as it doesn't have an ID", device_name)
             return None
 
-        if not soup:
+        if tree is None:
             response = await self._pulse_connection.async_query(ADT_SYSTEM_URI)
-            soup = make_soup(
+            tree = make_etree(
                 response[0],
                 response[1],
                 response[2],
                 logging.WARNING,
                 "Failed loading zone status from ADT Pulse service",
             )
-            if not soup:
+            if tree is None:
                 return False
         with self._site_lock:
-            for row in soup.find_all("tr", {"class": "p_listRow", "onclick": True}):
-                device_name = row.find("a").get_text()
-                row_tds = row.find_all("td")
+            for row in tree.findall(".//tr[@class='p_listRow'][@onclick]"):
+                tmp_device_name = row.find(".//a")
+                if tmp_device_name is None:
+                    LOG.debug("Skipping device as it has no name")
+                    continue
+                device_name = tmp_device_name.text_content().strip()
+                row_tds = row.findall("td")
                 zone_id = add_zone_from_row(row_tds)
                 if zone_id is None:
                     continue
                 on_click_value_text = row.get("onclick")
+                if on_click_value_text is None:
+                    LOG.debug(
+                        "Skipping device %s as it has no onclick value", device_name
+                    )
+                    continue
                 if (
                     on_click_value_text in ("goToUrl('gateway.jsp');", "Gateway")
                     or device_name == "Gateway"
@@ -263,7 +279,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
         return True
 
     async def _async_update_zones_as_dict(
-        self, soup: BeautifulSoup | None
+        self, tree: html.HtmlElement | None
     ) -> ADTPulseZones | None:
         """Update zone status information asynchronously.
 
@@ -279,10 +295,10 @@ class ADTPulseSite(ADTPulseSiteProperties):
                 self._site_lock.release()
                 raise RuntimeError("No zones exist")
             LOG.debug("fetching zones for site %s", self._id)
-            if not soup:
+            if not tree:
                 # call ADT orb uri
                 try:
-                    soup = await self._pulse_connection.query_orb(
+                    tree = await self._pulse_connection.query_orb(
                         logging.WARNING, "Could not fetch zone status updates"
                     )
                 except (
@@ -294,17 +310,17 @@ class ADTPulseSite(ADTPulseSiteProperties):
                         "Could not fetch zone status updates from orb: %s", ex.args[0]
                     )
                     return None
-            if soup is None:
+            if tree is None:
                 return None
-            self.update_zone_from_soup(soup)
+            self.update_zone_from_etree(tree)
         return self._zones
 
-    def update_zone_from_soup(self, soup: BeautifulSoup) -> None:
+    def update_zone_from_etree(self, tree: html.HtmlElement) -> None:
         """
-        Updates the zone information based on the provided BeautifulSoup object.
+        Updates the zone information based on the provided lxml etree.
 
         Args:
-            soup (BeautifulSoup): The BeautifulSoup object containing the parsed HTML.
+            tree:html.HtmlElement: the parsed response tree
 
         Returns:
             None
@@ -317,27 +333,27 @@ class ADTPulseSite(ADTPulseSiteProperties):
             start_time = time()
         # parse ADT's convulated html to get sensor status
         with self._site_lock:
-            orb_status = soup.find("canvas", {"id": "ic_orb"})
-            if orb_status:
-                alarm_status = orb_status.get("orb")
-                if not alarm_status:
-                    LOG.error("Failed to retrieve alarm status from orb!")
-                elif alarm_status == "offline":
+            try:
+                orb_status = tree.find(".//canvas[@id='ic_orb']").get("orb")
+                if orb_status == "offline":
                     self.gateway.is_online = False
                     raise PulseGatewayOfflineError(self.gateway.backoff)
                 else:
                     self.gateway.is_online = True
                     self.gateway.backoff.reset_backoff()
 
-            for row in soup.find_all("tr", {"class": "p_listRow"}):
-                temp = row.find("div", {"class": "p_grayNormalText"})
+            except (AttributeError, ValueError):
+                LOG.error("Failed to retrieve alarm status from orb!")
+
+            for row in tree.findall(".//tr[@class='p_listRow']"):
+                temp = row.find(".//div[@class='p_grayNormalText']")
                 # v26 and lower: temp = row.find("span", {"class": "p_grayNormalText"})
                 if temp is None:
                     break
                 try:
                     zone = int(
                         remove_prefix(
-                            temp.get_text(),
+                            temp.text_content(),
                             "Zone",
                         )
                     )
@@ -345,41 +361,54 @@ class ADTPulseSite(ADTPulseSiteProperties):
                     LOG.debug("skipping row due to zone not being an integer")
                     continue
                 # parse out last activity (required dealing with "Yesterday 1:52 PM")
-                temp = row.find("span", {"class": "devStatIcon"})
-                if temp is None:
-                    break
-                last_update = datetime(1970, 1, 1)
+
                 try:
+                    last_udate_time_string = row.find(
+                        ".//span[@class='devStatIcon']"
+                    ).get("title")
                     last_update = parse_pulse_datetime(
-                        remove_prefix(temp.get("title"), "Last Event:")
+                        remove_prefix(last_udate_time_string, "Last Activity:")
                         .lstrip()
                         .rstrip()
                     )
-                except ValueError:
+                except (AttributeError, ValueError):
+                    LOG.debug(
+                        "Unable to set last event time for zone %s due to malformed html",
+                        zone,
+                    )
                     last_update = datetime(1970, 1, 1)
+
                 # name = row.find("a", {"class": "p_deviceNameText"}).get_text()
 
-                state = remove_prefix(
-                    row.find("canvas", {"class": "p_ic_icon_device"}).get("icon"),
-                    "devStat",
-                )
-                temp_status = row.find("td", {"class": "p_listRow"}).find_next(
-                    "td", {"class": "p_listRow"}
-                )
+                try:
+                    state = remove_prefix(
+                        row.find(".//canvas[@class='p_ic_icon_device']").get("icon"),
+                        "devStat",
+                    )
+                except (AttributeError, ValueError):
+                    LOG.debug(
+                        "Unable to set state for zone %s due to malformed html", zone
+                    )
+                    continue
 
-                status = "Unknown"
-                if temp_status is not None:
-                    temp_status = temp_status.get_text()
-                    if temp_status is not None:
-                        temp_status = str(temp_status.replace("\xa0", ""))
-                        if temp_status.startswith("Trouble"):
-                            trouble_code = str(temp_status).split()
-                            if len(trouble_code) > 1:
-                                status = " ".join(trouble_code[1:])
-                            else:
-                                status = "Unknown trouble code"
+                try:
+                    status = (
+                        row.find(".//td[@class='p_listRow']").getnext().text_content()
+                    )
+                    status = status.replace("\xa0", "")
+                    if status.startswith("Trouble"):
+                        trouble_code = status.split()
+                        if len(trouble_code) > 1:
+                            status = " ".join(trouble_code[1:])
                         else:
-                            status = "Online"
+                            status = "Unknown trouble code"
+                    else:
+                        status = "Online"
+                except (ValueError, AttributeError):
+                    LOG.debug(
+                        "Unable to set status for zone %s because html malformed", zone
+                    )
+                    status = "Unknown"
 
                 # id:    [integer]
                 # name:  device name
