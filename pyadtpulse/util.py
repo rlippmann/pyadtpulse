@@ -225,7 +225,7 @@ def parse_pulse_datetime(datestring: str) -> datetime:
         tempdate = f"{split_string[0]}/{t.year}"
         last_update = datetime.strptime(tempdate, "%m/%d/%Y")
     if last_update > t:
-        last_update = last_update.replace(year=t.year)
+        last_update = last_update.replace(year=t.year - 1)
     update_time = datetime.time(
         datetime.strptime(split_string[1] + split_string[2], "%I:%M%p")
     )
