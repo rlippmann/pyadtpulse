@@ -26,6 +26,7 @@ from pyadtpulse.exceptions import (
     PulseServerConnectionError,
     PulseServiceTemporarilyUnavailableError,
 )
+from pyadtpulse.pyadtpulse_async import PyADTPulseAsync
 from pyadtpulse.site import ADTPulseSite
 
 USER = "adtpulse_user"
@@ -631,11 +632,10 @@ async def async_example(
         relogin_interval (int): relogin interval in minutes
         detailed_debug_logging (bool): enable detailed debug logging
     """
-    adt = PyADTPulse(
+    adt = PyADTPulseAsync(
         username,
         password,
         fingerprint,
-        do_login=False,
         debug_locks=debug_locks,
         keepalive_interval=keepalive_interval,
         relogin_interval=relogin_interval,
