@@ -317,7 +317,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
             self.update_zone_from_etree(tree)
         return self._zones
 
-    def update_zone_from_etree(self, tree: html.HtmlElement) -> None:
+    def update_zone_from_etree(self, tree: html.HtmlElement) -> set[int]:
         """
         Updates the zone information based on the provided lxml etree.
 
@@ -325,7 +325,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
             tree:html.HtmlElement: the parsed response tree
 
         Returns:
-            None
+            set[int]: a set of zone ids that were updated
 
         Raises:
             PulseGatewayOffline: If the gateway is offline.
@@ -426,7 +426,9 @@ class ADTPulseSite(ADTPulseSiteProperties):
                 status,
                 last_update,
             )
+            retval.add(zone)
 
+        retval: set[int] = set()
         start_time = 0.0
         if self._pulse_connection.detailed_debug_logging:
             start_time = time()
@@ -488,6 +490,7 @@ class ADTPulseSite(ADTPulseSiteProperties):
 
             if self._pulse_connection.detailed_debug_logging:
                 LOG.debug("Updated zones in %f seconds", time() - start_time)
+        return retval
 
     async def _async_update_zones(self) -> list[ADTPulseFlattendZone] | None:
         """Update zones asynchronously.

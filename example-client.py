@@ -686,6 +686,8 @@ async def async_example(
     done = False
     have_exception = False
     while not done:
+        updated_zones: set[int] = set()
+        alarm_updated = False
         try:
             if not have_exception:
                 print(f"Gateway online: {adt.site.gateway.is_online}")
@@ -698,7 +700,7 @@ async def async_example(
                 print("\nZones:")
                 pprint(adt.site.zones, compact=True)
             try:
-                await adt.wait_for_update()
+                (alarm_updated, updated_zones) = await adt.wait_for_update()
                 have_exception = False
             except PulseGatewayOfflineError as ex:
                 print(
@@ -716,7 +718,9 @@ async def async_example(
                 print("ADT Pulse authentication error: %s, exiting...", ex.args[0])
                 done = True
                 break
-            print("Updates exist, refreshing")
+            print(
+                f"Updates exist: alarm: {alarm_updated}, zones: {updated_zones}, refreshing",
+            )
         # no need to call an update method
         except KeyboardInterrupt:
             print("exiting...")

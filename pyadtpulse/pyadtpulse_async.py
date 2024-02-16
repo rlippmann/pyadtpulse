@@ -63,6 +63,7 @@ class PyADTPulseAsync:
         "_detailed_debug_logging",
         "_sync_check_exception",
         "_sync_check_sleeping",
+        "_updated_zones",
     )
 
     @typechecked
@@ -132,6 +133,7 @@ class PyADTPulseAsync:
         self._sync_check_exception: Exception | None = PulseNotLoggedInError()
         pc_backoff.reset_backoff()
         self._sync_check_sleeping = asyncio.Event()
+        self._updated_zones: set[int] = set()
 
     def __repr__(self) -> str:
         """Object representation."""
@@ -149,7 +151,8 @@ class PyADTPulseAsync:
                 if self._site is None:
                     raise RuntimeError("pyadtpulse could not retrieve site")
             self._site.alarm_control_panel.update_alarm_from_etree(tree)
-            self._site.update_zone_from_etree(tree)
+            updated_zones = self._site.update_zone_from_etree(tree)
+            self._updated_zones.update(updated_zones)
             if self._pulse_connection.detailed_debug_logging:
                 LOG.debug(
                     "Updated site %s in %s seconds",
@@ -657,12 +660,14 @@ class PyADTPulseAsync:
 
         return False
 
-    async def wait_for_update(self) -> None:
+    async def wait_for_update(self) -> tuple[bool, set[int]]:
         """Wait for update.
 
         Blocks current async task until Pulse system
         signals an update
 
+        Returns:
+            tuple: (bool, set[int]): (True if an update was detected, set of zone ids that were updated)
         Raises:
             Every exception from exceptions.py are possible
         """
@@ -679,13 +684,16 @@ class PyADTPulseAsync:
                     coro, name=f"{SYNC_CHECK_TASK_NAME}: Async session"
                 )
                 await asyncio.sleep(0)
-
+        old_alarm_status = self.site.alarm_control_panel.status
         await self._pulse_properties.updates_exist.wait()
         self._pulse_properties.updates_exist.clear()
         curr_exception = self.sync_check_exception
         self.sync_check_exception = None
         if curr_exception:
             raise curr_exception
+        updated_zones = self._updated_zones
+        self._updated_zones = set()
+        return (self.site.alarm_control_panel.status != old_alarm_status, updated_zones)
 
     @property
     def sites(self) -> list[ADTPulseSite]:
