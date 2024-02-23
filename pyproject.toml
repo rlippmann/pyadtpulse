@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pyadtpulse"
-version = "1.2.6b1"
+version = "1.2.6"
 description = "Python interface for ADT Pulse security systems"
 authors = ["Ryan Snodgrass"]
 maintainers = ["Robert Lippmann"]
