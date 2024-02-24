@@ -1,3 +1,8 @@
+## 1.2.7 (2024-02-23)
+
+* catch site is None on logout to prevent "have you logged in" errors
+* speed improvements via aiohttp-zlib-ng
+
 ## 1.2.6 (2024-02-23)
 
 Performance improvements including:
