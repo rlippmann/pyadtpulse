@@ -635,7 +635,7 @@ class PyADTPulseAsync:
             await self._cancel_task(self._sync_task)
         try:
             site_id = self.site.id
-        except ValueError:
+        except (RuntimeError, ValueError):
             site_id = None
         await self._pulse_connection.async_do_logout_query(site_id)
 
